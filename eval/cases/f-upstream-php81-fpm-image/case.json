@@ -4,8 +4,15 @@
   "stack": "Official php:8.1-fpm Docker image behind nginx",
   "cve": "CVE-2026-109619",
   "target": "CVE-2026-109619",
+  "sources": [
+    "https://www.php.net/archive/2026.php"
+  ],
   "ground_truth": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp",
-  "expect": { "verdict": "AFFECTED", "also_acceptable": [], "must_mention": "isolat" },
+  "expect": {
+    "verdict": "AFFECTED",
+    "also_acceptable": [],
+    "must_mention": "isolat"
+  },
   "baseline_expected": "AFFECTED",
   "why": "php -v reports 8.1.33, inside NVD's >= 5.4.0 < 8.2.35. No Debian php8.1 package is installed, so no backport applies. 8.1 is EOL upstream: move branch or isolate."
 }

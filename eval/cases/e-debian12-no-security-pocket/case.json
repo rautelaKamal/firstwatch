@@ -4,8 +4,15 @@
   "stack": "Debian 12 bookworm, nginx with php8.2-fpm, sources.list without the security pocket",
   "cve": "CVE-2026-109618",
   "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "sources": [
+    "https://www.php.net/archive/2026.php"
+  ],
   "ground_truth": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
-  "expect": { "verdict": "AFFECTED", "also_acceptable": [], "must_mention": "8.2.35-1~deb12u1" },
+  "expect": {
+    "verdict": "AFFECTED",
+    "also_acceptable": [],
+    "must_mention": "8.2.35-1~deb12u1"
+  },
   "baseline_expected": "AFFECTED",
   "why": "OSV: Debian:12 php8.2 8.2.32-1~deb12u1 still affected; fixed in 8.2.35-1~deb12u1 via bookworm-security."
 }

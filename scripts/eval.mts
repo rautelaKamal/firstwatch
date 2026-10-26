@@ -1,20 +1,23 @@
 /**
- * Run the agent over eval/cases and print a scorecard, next to the scorecard
- * an NVD-only version scanner gets on the same cases.
+ * Run FirstWatch over eval/cases and print its scorecard next to a version
+ * scanner's on the same cases.
  *
- *   npm run eval -- --dry       parse fixtures only, no model calls, free
- *   npm run eval                FirstWatch and the baseline, side by side
- *   npm run eval -- --no-baseline
- *   npm run eval -- --case e --verbose
+ *   npm run eval -- --dry          fixtures and the code baseline only: no model, free
+ *   npm run eval -- --case a       one case
+ *   npm run eval                   every case
+ *   npm run eval -- --verbose      show each request, wait and tool call
  *
- * Expected verdicts come from eval/ground-truth.md, verified against OSV.
- * Re-verify with `npm run verify-truth` before trusting a run.
+ * The baseline is deterministic code (lib/baseline.ts) and costs nothing.
+ * Expected verdicts come from eval/ground-truth.md, verified against OSV;
+ * re-check with `npm run verify-truth` before trusting a run.
  */
 
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { runAgent, type AgentMode, type FirstWatchReport, type TokenUsage, type Verdict } from "../lib/agent";
+import { VERDICT_LABELS, runAgent, type FirstWatchReport, type TokenUsage, type Verdict } from "../lib/agent";
+import { runBaseline } from "../lib/baseline";
+import { emptyUsage, mergeUsage } from "../lib/llm";
 import { parse_stack } from "../lib/tools";
 import { loadEnv } from "./env.mjs";
 
@@ -29,12 +32,13 @@ type CaseSpec = {
   stack: string;
   cve: string;
   target: string;
+  sources?: string[];
   ground_truth: string;
   expect: { verdict: Verdict; also_acceptable?: Verdict[]; must_mention?: string };
   baseline_expected?: Verdict;
   why: string;
 };
-type Loaded = CaseSpec & { dir: string; files: Record<string, string> };
+type Loaded = CaseSpec & { files: Record<string, string> };
 
 const argv = process.argv.slice(2);
 const flag = (...n: string[]) => {
@@ -42,23 +46,18 @@ const flag = (...n: string[]) => {
   return i >= 0 ? argv[i + 1] : undefined;
 };
 const has = (...n: string[]) => argv.some((a) => n.includes(a));
-
 const only = flag("--case", "-c");
 const model = flag("--model", "-m");
 const max = flag("--max", "-n");
 const dry = has("--dry");
 const verbose = has("--verbose", "-v");
-const withBaseline = !has("--no-baseline");
 
 const plain = Boolean(process.env.NO_COLOR) || !process.stdout.isTTY;
 const c = (code: string) => (s: string | number) => (plain ? String(s) : `\u001b[${code}m${s}\u001b[0m`);
-const dim = c("2");
-const bold = c("1");
-const red = c("31");
-const green = c("32");
-const yellow = c("33");
-const blue = c("36");
+const [dim, bold, red, green, yellow, blue] = ["2", "1", "31", "32", "33", "36"].map(c);
 const ms = (n: number) => (n < 1000 ? `${n}ms` : `${(n / 1000).toFixed(1)}s`);
+const n = (x: number) => x.toLocaleString();
+const label = (v: Verdict | "none") => (v === "none" ? "none" : VERDICT_LABELS[v]);
 
 /** How reassuring a verdict is. Saying something safer than the truth is the dangerous error. */
 const REASSURANCE: Record<Verdict, number> = { NOT_AFFECTED: 3, AFFECTED_MITIGATED: 2, UNVERIFIED: 1, AFFECTED: 0 };
@@ -73,103 +72,9 @@ function loadCases(): Loaded[] {
       const dir = join(CASES_DIR, d);
       const spec = JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as CaseSpec;
       const files: Record<string, string> = {};
-      for (const f of readdirSync(dir)) {
-        if (f !== "case.json") files[f] = readFileSync(join(dir, f), "utf8");
-      }
-      return { ...spec, dir, files };
+      for (const f of readdirSync(dir)) if (f !== "case.json") files[f] = readFileSync(join(dir, f), "utf8");
+      return { ...spec, files };
     });
-}
-
-/* --- dry run: fixtures only, no tokens spent --------------------- */
-function dryRun(cases: Loaded[]): number {
-  let problems = 0;
-  for (const k of cases) {
-    const parsed = parse_stack(k.files);
-    console.log(`\n${bold(k.id)} ${dim(`expects ${k.expect.verdict}, scanner would say ${k.baseline_expected ?? "?"}`)}`);
-    console.log(`  ${dim("files    ")} ${Object.keys(k.files).join(", ")}`);
-    if (!parsed.ok) {
-      console.log(`  ${red("parse_stack failed")} ${parsed.error}`);
-      problems++;
-      continue;
-    }
-    console.log(`  ${dim("summary  ")} ${parsed.summary}`);
-    console.log(`  ${dim("ecosystem")} ${parsed.ecosystems.join(", ") || red("none")}`);
-    console.log(`  ${dim("runtime  ")} ${parsed.hasRuntimeEvidence ? green("yes") : yellow("no")}`);
-    for (const p of parsed.packages) {
-      console.log(`      ${blue(p.name.padEnd(24))} ${p.version.padEnd(26)} src=${String(p.source).padEnd(8)} ${p.kind === "runtime" ? green(p.kind) : yellow(p.kind)} ${dim(p.where)}`);
-    }
-    for (const u of parsed.unverified) console.log(`      ${yellow("unverified")} ${u.slice(0, 150)}`);
-
-    // Sanity: a case that expects a decided verdict needs an ecosystem and runtime evidence.
-    const needsDistro = k.expect.verdict === "NOT_AFFECTED";
-    if (needsDistro && !parsed.ecosystems.length) {
-      console.log(`  ${red("fixture problem")} expects NOT_AFFECTED but no OSV ecosystem could be derived`);
-      problems++;
-    }
-    if (needsDistro && !parsed.hasRuntimeEvidence) {
-      console.log(`  ${red("fixture problem")} expects NOT_AFFECTED but carries no runtime evidence, so invariant I3 would force UNVERIFIED`);
-      problems++;
-    }
-    if (k.expect.verdict === "UNVERIFIED" && parsed.hasRuntimeEvidence && parsed.packages.some((p) => p.kind === "runtime")) {
-      console.log(`  ${yellow("check")} expects UNVERIFIED but runtime package evidence is present`);
-    }
-  }
-  console.log(`\n${problems ? red(`${problems} fixture problems`) : green("fixtures consistent with the invariants")} ${dim("(no model calls made)")}`);
-  return problems;
-}
-
-/* --- one run ------------------------------------------------------ */
-type Result = {
-  verdict: Verdict | "none";
-  report: FirstWatchReport | null;
-  toolCalls: number;
-  ms: number;
-  note: string;
-  downgrades: number;
-  usage: TokenUsage;
-};
-
-const noUsage = (): TokenUsage => ({ prompt: 0, completion: 0, total: 0, requests: 0 });
-const tokens = (u: TokenUsage) => `${u.total.toLocaleString()} tokens (${u.prompt.toLocaleString()} in, ${u.completion.toLocaleString()} out, ${u.requests} requests)`;
-
-async function runOne(k: Loaded, mode: AgentMode): Promise<Result> {
-  const started = Date.now();
-  let report: FirstWatchReport | null = null;
-  let toolCalls = 0;
-  let note = "";
-  let downgrades = 0;
-  let usage = noUsage();
-  try {
-    for await (const e of runAgent({
-      stack: k.stack,
-      files: k.files,
-      target: k.target,
-      cve: k.cve,
-      mode,
-      model,
-      maxIterations: max ? Number(max) : undefined,
-    })) {
-      if (verbose && e.type === "tool_call") console.log(`    ${blue(e.tool)} ${dim(JSON.stringify(e.args).slice(0, 150))}`);
-      if (verbose && e.type === "tool_result") console.log(`      ${e.ok ? green("ok") : red("failed")} ${dim(ms(e.ms))} ${e.summary.slice(0, 150)}`);
-      if (e.type === "facts") console.log(`    ${dim("facts")} ${e.summary}`);
-      if (e.type === "repair") console.log(`    ${yellow("repair")} ${e.errors.join("; ").slice(0, 160)}`);
-      if (e.type === "enforced") {
-        downgrades = e.downgrades.length;
-        for (const d of e.downgrades) console.log(`    ${yellow(`${d.invariant} downgrade`)} ${d.package}: ${d.from} -> ${d.to}  ${dim(d.why.slice(0, 140))}`);
-      }
-      if (e.type === "error") note = e.message;
-      if (e.type === "final") {
-        report = e.report;
-        toolCalls = e.toolCalls;
-        usage = e.usage;
-        if (!e.report) note = e.reportError ?? "no valid report";
-        writeFileSync(join(OUT_DIR, `${k.id}.${mode}.json`), JSON.stringify({ case: k.id, mode, report: e.report, raw: e.report ? undefined : e.text }, null, 2));
-      }
-    }
-  } catch (e) {
-    note = e instanceof Error ? e.message : String(e);
-  }
-  return { verdict: report?.overall ?? "none", report, toolCalls, ms: Date.now() - started, note, downgrades, usage };
 }
 
 function grade(want: Verdict, acceptable: Verdict[], got: Verdict | "none") {
@@ -178,90 +83,121 @@ function grade(want: Verdict, acceptable: Verdict[], got: Verdict | "none") {
   if (acceptable.includes(got)) return { status: "soft" as const, unsafe: false };
   return { status: "fail" as const, unsafe: REASSURANCE[got] > REASSURANCE[want] };
 }
+type Grade = ReturnType<typeof grade>;
+const mark = (g: Grade) =>
+  g.status === "pass" ? green("PASS") : g.status === "soft" ? yellow("SOFT") : g.status === "err" ? red("ERR ") : red("FAIL");
+
+/* --- dry run: fixtures and the code baseline, no model -------------- */
+async function dryRun(cases: Loaded[]): Promise<number> {
+  let problems = 0;
+  for (const k of cases) {
+    const parsed = parse_stack(k.files);
+    const base = await runBaseline({ files: k.files, cve: k.cve, target: k.target });
+    const baseOk = !k.baseline_expected || base.report.overall === k.baseline_expected;
+    console.log(`\n${bold(k.id)} ${dim(`expects ${k.expect.verdict}`)}`);
+    if (!parsed.ok) {
+      console.log(`  ${red("parse_stack failed")} ${parsed.error}`);
+      problems++;
+      continue;
+    }
+    console.log(`  ${dim("stack    ")} ${parsed.summary}`);
+    console.log(`  ${dim("baseline ")} ${base.report.overall} from "${base.version ?? "nothing"}" ${baseOk ? green("(as recorded)") : red(`(case.json says ${k.baseline_expected})`)}`);
+    if (!baseOk) problems++;
+  }
+  console.log(`\n${problems ? red(`${problems} problems`) : green("fixtures and baseline consistent")} ${dim("(no model calls made)")}`);
+  return problems;
+}
+
+/* --- live run ----------------------------------------------------- */
+type Result = { verdict: Verdict | "none"; report: FirstWatchReport | null; toolCalls: number; ms: number; note: string; usage: TokenUsage; digest: TokenUsage; downgrades: number };
+
+async function runFirstWatch(k: Loaded): Promise<Result> {
+  const started = Date.now();
+  const out: Result = { verdict: "none", report: null, toolCalls: 0, ms: 0, note: "", usage: emptyUsage(), digest: emptyUsage(), downgrades: 0 };
+  for await (const e of runAgent({ stack: k.stack, files: k.files, target: k.target, cve: k.cve, sources: k.sources, model, maxIterations: max ? Number(max) : undefined })) {
+    if (e.type === "digest") console.log(`    ${dim("digest")} ${e.url} ${e.error ? red(e.error.slice(0, 160)) : e.cached ? dim(`cached, ${e.items} items`) : `${e.items} items kept, ${e.dropped} dropped, ${e.chunks} part(s), ${n(e.tokens)} tokens`}`);
+    if (e.type === "nvd") console.log(`    ${dim("nvd   ")} ${e.id}: ${e.ranges} php ranges${e.note ? ` (${e.note})` : ""}`);
+    if (e.type === "waiting") console.log(`    ${yellow("wait  ")} ${ms(e.ms)}: ${e.reason}`);
+    if (e.type === "compacted") console.log(`    ${yellow("compact")} ${e.note}`);
+    if (e.type === "request" && verbose) console.log(`    ${dim("request")} ${e.label}: ${n(e.total)} tokens (${n(e.prompt)} in, ${n(e.completion)} out; estimated ${n(e.estimated)}) ${e.finish === "length" ? red("cut off") : ""}`);
+    if (e.type === "tool_call" && verbose) console.log(`    ${blue(e.tool)} ${dim(JSON.stringify(e.args).slice(0, 150))}`);
+    if (e.type === "tool_result" && verbose) console.log(`      ${e.ok ? green("ok") : red("failed")} ${e.summary.slice(0, 170)}`);
+    if (e.type === "repair") console.log(`    ${yellow("repair")} ${e.errors.join("; ").slice(0, 160)}`);
+    if (e.type === "enforced") {
+      out.downgrades = e.downgrades.length;
+      for (const d of e.downgrades) console.log(`    ${yellow(`${d.invariant}`)} ${d.package}: ${d.from} -> ${d.to} ${dim(d.why.slice(0, 130))}`);
+    }
+    if (e.type === "error") {
+      out.note = e.message;
+      if (e.usage) out.usage = e.usage;
+      if (e.digestUsage) out.digest = e.digestUsage;
+    }
+    if (e.type === "final") {
+      out.report = e.report;
+      out.verdict = e.report?.overall ?? "none";
+      out.toolCalls = e.toolCalls;
+      out.usage = e.usage;
+      out.digest = e.digestUsage;
+      if (!e.report) out.note = e.reportError ?? "no valid report";
+      writeFileSync(join(OUT_DIR, `${k.id}.firstwatch.json`), JSON.stringify({ case: k.id, report: e.report, raw: e.report ? undefined : e.text, usage: e.usage, digestUsage: e.digestUsage }, null, 2));
+    }
+  }
+  out.ms = Date.now() - started;
+  return out;
+}
 
 async function liveRun(cases: Loaded[]) {
   mkdirSync(OUT_DIR, { recursive: true });
-  const rows: {
-    id: string; want: Verdict; fw: Result; base: Result | null;
-    fwGrade: ReturnType<typeof grade>; baseGrade: ReturnType<typeof grade> | null; mentioned: boolean;
-  }[] = [];
+  const rows: { k: Loaded; fw: Result; base: Verdict; fwG: Grade; baseG: Grade; mentioned: boolean }[] = [];
 
   for (const k of cases) {
-    console.log(`\n${bold(k.id)} ${dim(`want ${k.expect.verdict}`)}`);
+    console.log(`\n${bold(k.id)} ${dim(`expects ${label(k.expect.verdict)}`)}`);
     console.log(`  ${dim(k.why)}`);
-    console.log(`  ${dim("firstwatch")}`);
-    const fw = await runOne(k, "firstwatch");
-    let base: Result | null = null;
-    if (withBaseline) {
-      console.log(`  ${dim("nvd-only baseline")}`);
-      base = await runOne(k, "nvd-baseline");
-    }
-
+    const fw = await runFirstWatch(k);
+    const base = (await runBaseline({ files: k.files, cve: k.cve, target: k.target })).report.overall;
     const acceptable = k.expect.also_acceptable ?? [];
-    const fwGrade = grade(k.expect.verdict, acceptable, fw.verdict);
-    const baseGrade = base ? grade(k.expect.verdict, acceptable, base.verdict) : null;
+    const fwG = grade(k.expect.verdict, acceptable, fw.verdict);
+    const baseG = grade(k.expect.verdict, acceptable, base);
     const mention = (k.expect.must_mention ?? "").toLowerCase();
     const mentioned = !mention || JSON.stringify(fw.report ?? {}).toLowerCase().includes(mention);
+    rows.push({ k, fw, base, fwG, baseG, mentioned });
 
-    rows.push({ id: k.id, want: k.expect.verdict, fw, base, fwGrade, baseGrade, mentioned });
-
-    const mark = (g: ReturnType<typeof grade>) =>
-      g.status === "pass" ? green("PASS") : g.status === "soft" ? yellow("SOFT") : g.status === "err" ? red("ERR ") : red("FAIL");
-    console.log(`  ${mark(fwGrade)} firstwatch: ${fw.verdict}${fwGrade.unsafe ? red("  UNSAFE") : ""} ${dim(`${fw.toolCalls} calls, ${ms(fw.ms)}${fw.downgrades ? `, ${fw.downgrades} downgraded` : ""}, ${tokens(fw.usage)}`)}`);
-    if (base && baseGrade) console.log(`  ${mark(baseGrade)} baseline:   ${base.verdict}${baseGrade.unsafe ? red("  UNSAFE") : ""} ${dim(`${base.toolCalls} calls, ${ms(base.ms)}, ${tokens(base.usage)}`)}`);
-    if (fw.report?.summary) console.log(`  ${dim(fw.report.summary.slice(0, 240))}`);
+    const both = mergeUsage(fw.usage, fw.digest);
+    console.log(`  ${mark(fwG)} firstwatch: ${label(fw.verdict)}${fwG.unsafe ? red("  UNSAFE") : ""} ${dim(`${fw.toolCalls} tool calls, ${ms(fw.ms)}, ${fw.downgrades} downgrades`)}`);
+    console.log(`  ${mark(baseG)} scanner:    ${label(base)}${baseG.unsafe ? red("  UNSAFE") : ""} ${dim("deterministic code, 0 tokens")}`);
+    console.log(`  ${dim("tokens")} agent ${n(fw.usage.total)} in ${fw.usage.requests} requests; digests ${n(fw.digest.total)} in ${fw.digest.requests}; largest request ${n(both.maxRequest)}`);
+    for (const r of both.perRequest) console.log(`    ${dim(r.label.padEnd(12))} ${n(r.total).padStart(6)} tokens  ${dim(`(${n(r.prompt)} in, ${n(r.completion)} out, estimated ${n(r.estimated)})`)}`);
+    if (fw.report?.summary) console.log(`  ${dim(fw.report.summary.slice(0, 300))}`);
+    if (fw.report?.warnings?.length) for (const w of fw.report.warnings) console.log(`  ${yellow("warning")} ${w.why}`);
+    if (fw.report?.citation_issues?.length) console.log(`  ${yellow(`${fw.report.citation_issues.length} citation(s) not found in the source they name`)}`);
     if (!mentioned) console.log(`  ${yellow("missing")} expected "${k.expect.must_mention}" in the report`);
-    if (fw.note) console.log(`  ${red("note")} ${fw.note.slice(0, 200)}`);
+    if (fw.note) console.log(`  ${red("note")} ${fw.note.slice(0, 300)}`);
   }
 
-  /* --- side by side ------------------------------------------------ */
-  console.log(`\n${bold("scorecard")}  ${dim("FirstWatch vs an NVD-only version scanner, same cases")}`);
-  console.log(dim("  case                            expected              firstwatch            nvd-only"));
-  const cell = (g: ReturnType<typeof grade> | null, v: Verdict | "none" | undefined) => {
-    if (!g) return "".padEnd(22);
-    const t = `${v}${g.unsafe ? " !" : ""}`.padEnd(22);
+  console.log(`\n${bold("scorecard")}  ${dim("FirstWatch vs a version scanner, same cases")}`);
+  console.log(dim(`  ${"case".padEnd(32)}${"expected".padEnd(28)}${"firstwatch".padEnd(28)}scanner`));
+  const cell = (g: Grade, v: Verdict | "none") => {
+    const t = `${label(v)}${g.unsafe ? " !" : ""}`.padEnd(28);
     return g.status === "pass" ? green(t) : g.status === "soft" ? yellow(t) : red(t);
   };
-  for (const r of rows) {
-    console.log(`  ${r.id.padEnd(30)} ${r.want.padEnd(21)} ${cell(r.fwGrade, r.fw.verdict)} ${cell(r.baseGrade, r.base?.verdict)}`);
+  for (const r of rows) console.log(`  ${r.k.id.padEnd(32)}${label(r.k.expect.verdict).padEnd(28)}${cell(r.fwG, r.fw.verdict)}${cell(r.baseG, r.base)}`);
+
+  const tally = (gs: Grade[]) => ({ pass: gs.filter((g) => g.status === "pass").length, soft: gs.filter((g) => g.status === "soft").length, unsafe: gs.filter((g) => g.unsafe).length });
+  const fwT = tally(rows.map((r) => r.fwG));
+  const bT = tally(rows.map((r) => r.baseG));
+  console.log(`\n  firstwatch  ${fwT.pass}/${rows.length} exact, ${fwT.soft} acceptable, ${fwT.unsafe ? red(`${fwT.unsafe} unsafe`) : green("0 unsafe")}`);
+  console.log(`  scanner     ${bT.pass}/${rows.length} exact, ${bT.soft} acceptable, ${bT.unsafe ? red(`${bT.unsafe} unsafe`) : green("0 unsafe")}`);
+
+  const agent = rows.reduce((a, r) => mergeUsage(a, r.fw.usage), emptyUsage());
+  const digest = rows.reduce((a, r) => mergeUsage(a, r.fw.digest), emptyUsage());
+  const all = mergeUsage(agent, digest);
+  console.log(`\n  ${bold("tokens")}  agent ${n(agent.total)}, digests ${n(digest.total)}, ${bold(`total ${n(all.total)}`)} in ${all.requests} requests, largest ${n(all.maxRequest)}`);
+  if (rows.length) {
+    const perCase = agent.total / rows.length;
+    console.log(dim(`  projected for all 9 cases: about ${n(Math.round(perCase * 9))} agent tokens, plus digests, which are cached after their first run`));
   }
-
-  const tally = (pick: (r: typeof rows[number]) => ReturnType<typeof grade> | null) => {
-    const gs = rows.map(pick).filter(Boolean) as ReturnType<typeof grade>[];
-    return {
-      pass: gs.filter((g) => g.status === "pass").length,
-      soft: gs.filter((g) => g.status === "soft").length,
-      unsafe: gs.filter((g) => g.unsafe).length,
-      total: gs.length,
-    };
-  };
-  const fwT = tally((r) => r.fwGrade);
-  const baseT = tally((r) => r.baseGrade);
-
-  console.log(`\n  firstwatch  ${fwT.pass}/${fwT.total} exact, ${fwT.soft} acceptable, ${fwT.unsafe ? red(`${fwT.unsafe} unsafe`) : green("0 unsafe")}`);
-  if (baseT.total) {
-    console.log(`  nvd-only    ${baseT.pass}/${baseT.total} exact, ${baseT.soft} acceptable, ${baseT.unsafe ? red(`${baseT.unsafe} unsafe`) : green("0 unsafe")}`);
-  }
-  const sum = (pick: (r: (typeof rows)[number]) => TokenUsage | undefined) =>
-    rows.reduce((acc, r) => {
-      const u = pick(r);
-      if (!u) return acc;
-      return { prompt: acc.prompt + u.prompt, completion: acc.completion + u.completion, total: acc.total + u.total, requests: acc.requests + u.requests };
-    }, noUsage());
-  const fwTokens = sum((r) => r.fw.usage);
-  const baseTokens = sum((r) => r.base?.usage);
-  console.log(`\n  ${bold("tokens")}`);
-  console.log(`  firstwatch  ${tokens(fwTokens)}`);
-  if (baseT.total) console.log(`  nvd-only    ${tokens(baseTokens)}`);
-  const all = sum((r) => r.fw.usage).total + sum((r) => r.base?.usage).total;
-  console.log(`  ${bold(`total       ${all.toLocaleString()} tokens across ${rows.length} case${rows.length > 1 ? "s" : ""}`)}`);
-  if (rows.length) console.log(dim(`  at this rate, all 9 cases would be roughly ${Math.round((all / rows.length) * 9).toLocaleString()} tokens`));
-
-  const gaps = rows.filter((r) => !r.mentioned).length;
-  if (gaps) console.log(`  ${yellow(`${gaps} reports missing expected content`)}`);
   console.log(dim(`  reports written to ${OUT_DIR}/`));
-
-  return fwT.total - fwT.pass - fwT.soft + fwT.unsafe;
+  return rows.length - fwT.pass - fwT.soft + fwT.unsafe;
 }
 
 const cases = loadCases();
@@ -270,4 +206,4 @@ if (!cases.length) {
   process.exit(1);
 }
 console.log(`${bold("FirstWatch eval")} ${cases.length} case${cases.length > 1 ? "s" : ""}${dry ? dim(" (dry run)") : ""}`);
-process.exit(dry ? (dryRun(cases) ? 1 : 0) : await liveRun(cases));
+process.exit(dry ? ((await dryRun(cases)) ? 1 : 0) : await liveRun(cases));

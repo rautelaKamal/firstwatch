@@ -740,8 +740,13 @@ export function parse_stack(files: StackFiles): StackFacts | Fail {
 
   const addPackage = (name: string, version: string, kind: "runtime" | "build", file: string, line: number, text: string) => {
     const source = sourcePackageOf(name);
-    if (!packages.some((p) => p.name === name && p.version === version)) {
+    const existing = packages.find((p) => p.name === name && p.version === version);
+    if (!existing) {
       packages.push({ name, version, source, kind, where: `${file}:${line}` });
+    } else if (kind === "runtime" && existing.kind === "build") {
+      // Seen at runtime too: that is the stronger evidence, so it wins.
+      existing.kind = "runtime";
+      existing.where = `${file}:${line}`;
     }
     add(`pkg.${name}`, version, kind, file, line, text);
     if (!source) add(`pkg.${name}.unmapped`, "no source package could be derived from this name", kind, file, line, text);
@@ -750,6 +755,7 @@ export function parse_stack(files: StackFiles): StackFacts | Fail {
   for (const { name, content } of entries) {
     const lines = content.split("\n");
     let kind = "unknown";
+    let inUlimits = false;
     try {
       kind = classify(name, content);
 
@@ -866,6 +872,30 @@ export function parse_stack(files: StackFiles): StackFacts | Fail {
         grab(/fastcgi_pass\s+(\S+)/i, "frontend.fastcgi_pass");
         grab(/client_max_body_size\s+(\S+)/i, "frontend.client_max_body_size");
         grab(/^pm\.max_requests\s*=\s*(\S+)/i, "fpm.pm_max_requests");
+
+        // ---- resource limits an advisory may warn against ----
+        // RLIMIT_AS and RLIMIT_DATA make allocations fail, which is the very
+        // failure CVE-2026-109618 needs. Record them so they can be flagged.
+        const limit = (field: string, re: RegExp, as: Fact["kind"] = "build") => {
+          const m = line.match(re);
+          if (m && !/^unlimited$|^-1$/i.test(m[1])) add(field, m[1], as, name, no, line);
+        };
+        limit("limit.rlimit_as", /\bulimit\b[^#]*?\s-[a-z]*v\s+(\S+)/i);
+        limit("limit.rlimit_data", /\bulimit\b[^#]*?\s-[a-z]*d\s+(\S+)/i);
+        limit("limit.rlimit_as", /^LimitAS\s*=\s*(\S+)/i);
+        limit("limit.rlimit_data", /^LimitDATA\s*=\s*(\S+)/i);
+        limit("limit.rlimit_as", /--ulimit[ =]as=(\S+)/i);
+        limit("limit.rlimit_data", /--ulimit[ =]data=(\S+)/i);
+        limit("limit.rlimit_as", /\bprlimit\b.*--as=(\S+)/i);
+        limit("limit.rlimit_data", /\bprlimit\b.*--data=(\S+)/i);
+        // `ulimit -a` pasted from the running system is runtime evidence.
+        limit("limit.rlimit_as", /virtual memory\s+\(kbytes,\s*-v\)\s+(\S+)/i, "runtime");
+        limit("limit.rlimit_data", /data seg size\s+\(kbytes,\s*-d\)\s+(\S+)/i, "runtime");
+        if (/^ulimits\s*:/i.test(line)) inUlimits = true;
+        if (inUlimits) {
+          limit("limit.rlimit_as", /^as\s*:\s*(\S+)/i);
+          limit("limit.rlimit_data", /^data\s*:\s*(\S+)/i);
+        }
       });
     } catch (e) {
       add("file.parse_error", why(e), "build", name, 1, `could not parse ${name}`);
@@ -1163,3 +1193,12 @@ export async function check_distro_fix(
       : `OSV evaluated ${source} ${v} in ${eco.ecosystem} and ${cveId} does not apply: ${eco.prefix} fixed it in ${fixedVersion ?? "an earlier version"}, and this version is at or above that. The distro backported the fix, so the upstream version number alone is misleading here.`,
   };
 }
+
+/**
+ * Compare quoted prose with source prose without tripping on formatting: the
+ * words must match exactly, quote marks, backticks and whitespace need not.
+ * Shared by the digest's quote check and the mitigation invariant, so both
+ * judge "verbatim" the same way.
+ */
+export const normaliseProse = (t: string) =>
+  t.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/`/g, "").replace(/\s+/g, " ").trim();

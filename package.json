@@ -10,11 +10,10 @@
     "agent": "tsx scripts/run.mts",
     "eval": "tsx scripts/eval.mts",
     "verify-truth": "tsx scripts/verify-truth.mts",
-    "test": "tsx scripts/test-invariants.mts"
+    "test": "tsx scripts/test-invariants.mts && tsx scripts/test-pipeline.mts"
   },
   "dependencies": {
     "cheerio": "^1.1.0",
-    "groq-sdk": "^1.6.0",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0"

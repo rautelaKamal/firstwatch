@@ -16,12 +16,25 @@ or a distro republishes, the answer key moves and the eval must move with it.
 | Upstream fixed releases | 8.2.35, 8.3.36, 8.4.27, 8.5.12 |
 | NVD ranges | 109618: `>= 7.3.0 < 8.2.35`; 109619: `>= 5.4.0 < 8.2.35`; both also `>= 8.3.0 < 8.3.36`, `>= 8.4.0 < 8.4.27`, `>= 8.5.0 < 8.5.12` |
 
-**No upstream release does not mean no fix.** Upstream shipped no 8.1 release,
-and 8.1 is past end of life, but the PHP security team published source
-backports for 7.4, 8.0 and 8.1, and distributions shipped packaged fixes. A
-version-string scanner reads "PHP 8.1, EOL, in range" and raises an alarm that
-is wrong on Ubuntu 22.04 and right on the upstream `php:8.1-fpm` image. That
-difference is the product.
+**No upstream release does not mean no fix.** Neither GHSA mentions 8.1 or
+backports; the [php.net announcement](https://www.php.net/archive/2026.php)
+does, and it is the source for every claim about them:
+
+> "PHP 8.1 and older no longer receive updates from the PHP project. Some
+> distributions and LTS vendors provide backported fixes, so contact your
+> vendor for details, or upgrade to a supported version."
+
+> "Given the severity of these vulnerabilities, the PHP security team provided
+> minimal source-backports for PHP 7.4, PHP 8.0, and PHP 8.1 to help people
+> building from source or without access to an LTS vendor."
+
+So a version-string scanner reads "PHP 8.1, EOL, in range" and raises an alarm
+that is wrong on Ubuntu 22.04 (packaged backport) and right on the upstream
+`php:8.1-fpm` image (built from the 8.1.33 release, which has neither the
+distro fix nor the source backport). That difference is the product.
+
+The archive page also carries a separate entry for CVE-2026-115560, so the
+digest narrows it to the paragraphs that mention this disclosure.
 
 ## Distro fixed versions, from OSV
 
@@ -86,6 +99,9 @@ Checked with `check_distro_fix("CVE-2026-109618", ...)`, 14/14 matching.
 This annotates severity only. It never changes a verdict, and nothing with an
 affected version is cleared because of its SAPI.
 
+The digest stores each SAPI's status in the advisory's exact words, checked to
+sit inside the quoted sentence, never a paraphrase.
+
 | SAPI | confidence | the advisory's own words |
 |---|---|---|
 | Apache mod_php | confirmed | "The fatal backtrace path has confirmed RCE against mod_php." and "Apache mod_php unconditionally invokes the request shutdown procedure, even when request startup has failed." |
@@ -96,14 +112,23 @@ affected version is cleared because of its SAPI.
 
 ## Stated configuration mitigations
 
-Neither is a complete fix. "Updating to a PHP release containing the patch to
-this vulnerability is the _only_ complete mitigation."
+None is a complete fix, which is why `AFFECTED_MITIGATED` is displayed as
+**"Affected, exposure reduced"**. GHSA-w8hw: "Updating to a PHP release
+containing the patch to this vulnerability is the _only_ complete mitigation."
+php.net: "while only an update is a complete solution, the following measures
+reduce exposure to specific attack paths but do not make an installation safe."
 
 - `memory_limit=-1` set administratively: "the primary configuration mitigation", and the advisory adds "This is not a complete mitigation."
 - `session.upload_progress.enabled=0` administratively plus a worker restart.
 - `fatal_error_backtraces=0` administratively, on 8.5, plus a worker restart.
 - Keep `post_max_size` conservative and enforce decoded request size at the frontend.
-- Do **not** use `RLIMIT_AS` or `RLIMIT_DATA`.
+- Do **not** use `RLIMIT_AS` or `RLIMIT_DATA`. This is an anti-mitigation:
+  GHSA-w8hw says they "will cause `mmap()` to fail once the memory limit is
+  reached", and php.net says "Do not substitute RLIMIT_AS or RLIMIT_DATA, as
+  these can cause the vulnerable allocation failure." `parse_stack` detects
+  them (`ulimit -v`/`-d`, systemd `LimitAS=`/`LimitDATA=`, `--ulimit as=`,
+  compose `ulimits:`, pasted `ulimit -a`) and the report carries a cited
+  warning when either is set.
 
 ## Expected verdicts per eval case
 

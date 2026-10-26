@@ -4,8 +4,15 @@
   "stack": "Debian 13 trixie, nginx with php8.4-fpm",
   "cve": "CVE-2026-109618",
   "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "sources": [
+    "https://www.php.net/archive/2026.php"
+  ],
   "ground_truth": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
-  "expect": { "verdict": "AFFECTED", "also_acceptable": [], "must_mention": "php8.4-fpm" },
+  "expect": {
+    "verdict": "AFFECTED",
+    "also_acceptable": [],
+    "must_mention": "php8.4-fpm"
+  },
   "baseline_expected": "NOT_AFFECTED",
   "why": "OSV: Debian:13 php8.4 fixed in 8.4.27-1~deb13u1. php8.4-cli 8.4.27-1~deb13u1 is fixed, php8.4-fpm 8.4.16-1~deb13u1 is affected."
 }

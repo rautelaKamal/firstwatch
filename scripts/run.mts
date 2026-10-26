@@ -1,18 +1,20 @@
 /**
- * Manual harness: run the agent once against a stack, end to end, no UI.
+ * Manual harness: run FirstWatch once, end to end, no UI.
  *
- *   npm run agent -- --files eval/cases/g-split-cli-patched-fpm-stale \
- *                    --cve CVE-2026-109618 \
- *                    --target https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w
+ *   npm run agent -- --files eval/cases/g-split-cli-patched-fpm-stale
+ *   npm run agent -- --files <dir> --cve CVE-2026-109618 --target <advisory url> --source <companion url>
  *
- * Flags: --files <dir> --stack <text> --target <url|cve> --cve <id>
- *        --mode firstwatch|nvd-baseline --model --max --json --full
+ * With --files pointing at an eval case, its case.json supplies the CVE, target
+ * and sources unless flags override them. --baseline prints the scanner's
+ * verdict as well. --json prints the report only.
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { MAX_ITERATIONS, runAgent, type AgentEvent, type AgentMode } from "../lib/agent";
+import { MAX_ITERATIONS, VERDICT_LABELS, runAgent, type AgentEvent } from "../lib/agent";
+import { runBaseline } from "../lib/baseline";
+import { mergeUsage } from "../lib/llm";
 import { loadEnv } from "./env.mjs";
 
 loadEnv();
@@ -22,118 +24,111 @@ const flag = (...n: string[]) => {
   const i = argv.findIndex((a) => n.includes(a));
   return i >= 0 ? argv[i + 1] : undefined;
 };
+const flags = (name: string) => argv.flatMap((a, i) => (a === name && argv[i + 1] ? [argv[i + 1]] : []));
 const has = (...n: string[]) => argv.some((a) => n.includes(a));
 
-const filesDir = flag("--files", "-f");
-const files = filesDir
-  ? Object.fromEntries(
-      readdirSync(filesDir)
-        .filter((f) => f !== "case.json" && statSync(join(filesDir, f)).isFile())
-        .map((f) => [f, readFileSync(join(filesDir, f), "utf8")]),
-    )
+const dir = flag("--files", "-f");
+const files = dir
+  ? Object.fromEntries(readdirSync(dir).filter((f) => f !== "case.json" && statSync(join(dir, f)).isFile()).map((f) => [f, readFileSync(join(dir, f), "utf8")]))
   : undefined;
+const spec = dir && existsSync(join(dir, "case.json"))
+  ? (JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as { stack?: string; cve?: string; target?: string; sources?: string[] })
+  : {};
 
-const stack = flag("--stack", "-s") ?? "";
-const target = flag("--target", "-t");
-const cve = flag("--cve");
-const mode = (flag("--mode") ?? "firstwatch") as AgentMode;
+const stack = flag("--stack", "-s") ?? spec.stack ?? "";
+const target = flag("--target", "-t") ?? spec.target;
+const cve = flag("--cve") ?? spec.cve;
+const sources = flags("--source").length ? flags("--source") : (spec.sources ?? []);
 const model = flag("--model", "-m");
 const max = Number(flag("--max", "-n") ?? MAX_ITERATIONS);
-const full = has("--full");
 const asJson = has("--json");
 
 if (!target || (!stack && !files)) {
-  console.error(
-    "Usage: npm run agent -- --files <case dir> --cve CVE-2026-109618 --target <advisory url or CVE id>\n" +
-      "       npm run agent -- --stack \"Ubuntu 22.04, php8.1-fpm\" --target <url>\n" +
-      "       flags: --files --stack --target --cve --mode --model --max --full --json",
-  );
+  console.error("Usage: npm run agent -- --files <case dir>   (or --files <dir> --cve <id> --target <url> [--source <url>])");
   process.exit(1);
 }
 
 const plain = Boolean(process.env.NO_COLOR) || !process.stdout.isTTY;
 const c = (code: string) => (s: string | number) => (plain ? String(s) : `\u001b[${code}m${s}\u001b[0m`);
-const dim = c("2");
-const bold = c("1");
-const red = c("31");
-const green = c("32");
-const yellow = c("33");
-const blue = c("36");
-const magenta = c("35");
-const ms = (n: number) => (n < 1000 ? `${n}ms` : `${(n / 1000).toFixed(1)}s`);
-const rule = (label = "") => console.log(dim(`---${label ? ` ${label} ` : "-"}${"-".repeat(Math.max(0, 68 - label.length))}`));
-
-let step = 0;
+const [dim, bold, red, green, yellow, blue] = ["2", "1", "31", "32", "33", "36"].map(c);
+const ms = (x: number) => (x < 1000 ? `${x}ms` : `${(x / 1000).toFixed(1)}s`);
+const n = (x: number) => x.toLocaleString();
+const rule = (t = "") => console.log(dim(`--- ${t} ${"-".repeat(Math.max(0, 66 - t.length))}`));
+const colour = (v: string) => (v === "AFFECTED" ? red : v === "NOT_AFFECTED" ? green : yellow);
 
 function show(e: AgentEvent) {
   if (asJson && e.type !== "final") return;
   switch (e.type) {
     case "start":
-      console.log(`${bold("FirstWatch")} ${dim(`${e.model} via ${e.baseUrl}`)} ${e.mode === "nvd-baseline" ? yellow("[nvd-only baseline]") : ""}`);
+      console.log(`${bold("FirstWatch")} ${dim(`${e.model} via ${e.baseUrl}; budget ${n(e.budget.tpm)} tokens/min, ${e.budget.rpm} requests/min, ${n(e.budget.maxRequestTokens)} per request`)}`);
       console.log(`${dim("target")} ${e.target}`);
-      rule();
       break;
     case "facts":
-      console.log(`${dim("facts ")} ${e.summary}`);
-      console.log(`${dim("osv   ")} ${e.ecosystems.join(", ") || red("no ecosystem derived")}  ${e.runtimeEvidence ? green("runtime evidence present") : yellow("build intent only")}`);
-      for (const u of e.unverified) console.log(`        ${yellow("unverified")} ${u}`);
-      rule();
+      console.log(`${dim("stack ")} ${e.summary}`);
+      break;
+    case "nvd":
+      console.log(`${dim("nvd   ")} ${e.id}: ${e.ranges} php ranges${e.note ? ` (${e.note})` : ""}`);
+      break;
+    case "digest_request":
+      console.log(`${dim("digest")} part ${e.index} of ${e.of}, ~${n(e.estimated)} tokens`);
+      break;
+    case "digest":
+      console.log(`${dim("digest")} ${e.url}: ${e.error ? red(e.error) : e.cached ? `cached, ${e.items} items` : `${e.items} verified items, ${e.dropped} discarded, ${n(e.tokens)} tokens`}`);
+      break;
+    case "waiting":
+      console.log(`${yellow("wait  ")} ${ms(e.ms)}: ${e.reason}`);
+      break;
+    case "compacted":
+      console.log(`${yellow("compact")} ${e.note} (~${n(e.estimated)} tokens)`);
+      break;
+    case "request":
+      console.log(`${dim(`${e.label}: ${n(e.total)} tokens (${n(e.prompt)} in, ${n(e.completion)} out, estimated ${n(e.estimated)})`)}${e.finish === "length" ? red(" cut off") : ""}`);
       break;
     case "thinking":
-      console.log(`${dim(`[${e.iteration}]`)} ${magenta("thinking")} ${e.text}`);
+      console.log(`${dim("thinking")} ${e.text}`);
       break;
-    case "tool_call": {
-      step++;
-      console.log(`${dim(`[${e.iteration}]`)} ${blue(`${step}. ${e.tool}`)} ${dim(Object.entries(e.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" "))}`);
+    case "tool_call":
+      console.log(`${blue(e.tool)} ${dim(Object.entries(e.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" "))}`);
       break;
-    }
     case "tool_result":
-      console.log(`      ${e.ok ? green("ok") : red("failed")} ${dim(ms(e.ms))} ${e.summary}`);
-      if (full) console.log(dim(JSON.stringify(e.result, null, 2).replace(/^/gm, "      ")));
+      console.log(`  ${e.ok ? green("ok") : red("failed")} ${dim(ms(e.ms))} ${e.summary}`);
       break;
     case "repair":
-      console.log(`${yellow("repair")} the reply did not match the schema: ${e.errors.join("; ")}`);
+      console.log(`${yellow("repair")} ${e.errors.join("; ")}`);
       break;
     case "capped":
       console.log(`${yellow("cap")} ${e.note}`);
       break;
     case "enforced":
       rule("invariants");
-      for (const d of e.downgrades) {
-        console.log(`${yellow(d.invariant)} ${bold(d.package)}: ${d.from} ${dim("->")} ${red(d.to)}`);
-        console.log(`   ${dim(d.why)}`);
-      }
+      for (const d of e.downgrades) console.log(`${yellow(d.invariant)} ${bold(d.package)}: ${d.from} -> ${d.to}\n   ${dim(d.why)}`);
       break;
     case "final": {
-      if (asJson || full) {
+      if (asJson) {
         console.log(JSON.stringify(e.report, null, 2));
         break;
       }
       rule("report");
       if (!e.report) {
-        console.log(`${red("no valid report")}: ${e.reportError ?? "unknown"}`);
+        console.log(`${red("no valid report")}: ${e.reportError}`);
         console.log(e.text);
       } else {
         const r = e.report;
-        const colour = r.overall === "AFFECTED" ? red : r.overall === "NOT_AFFECTED" ? green : yellow;
-        console.log(`${colour(bold(r.overall))}  ${r.summary}`);
+        console.log(`${colour(r.overall)(bold(VERDICT_LABELS[r.overall]))}  ${r.summary}`);
         for (const f of r.findings) {
-          const fc = f.verdict === "AFFECTED" ? red : f.verdict === "NOT_AFFECTED" ? green : yellow;
-          console.log(`\n${bold(f.package)} ${f.installed_version} ${dim(`(${f.version_source})`)}  ${fc(f.verdict)}`);
+          console.log(`\n${bold(f.package)} ${f.installed_version} ${dim(`(${f.version_source})`)}  ${colour(f.verdict)(VERDICT_LABELS[f.verdict])}`);
           console.log(`  ${dim(`decided by ${f.decided_by?.method}: ${f.decided_by?.detail ?? ""}`)}`);
-          console.log(`  ${dim(`exploitation: ${f.exploitation_confidence}, severity ${f.severity?.cvss ?? "?"} ${f.severity?.score ?? ""}`)}`);
-          for (const cit of f.citations ?? []) console.log(`  ${dim("cite")} ${cit.claim}\n       ${dim(`"${cit.quote}"`)}\n       ${dim(cit.source)}`);
-          for (const m of f.mitigations ?? []) console.log(`  ${yellow("mitigation")} ${m.setting}=${m.value} ${dim(`"${m.quote}"`)}`);
-          if (f.eol) console.log(`  ${dim(`eol: ${f.eol.branch} is_eol=${f.eol.is_eol} upstream_release=${f.eol.upstream_release_exists} ${f.eol.note}`)}`);
-          for (const rem of (f.remediation ?? []).slice().sort((a, b) => a.priority - b.priority)) {
-            console.log(`  ${rem.priority}. [${rem.type}] ${rem.action}\n       ${dim(rem.detail)}`);
-          }
+          if (f.allow_reason) console.log(`  ${dim(`allowed: ${f.allow_reason}`)}`);
+          for (const en of f.enforcement ?? []) console.log(`  ${yellow(`downgraded by ${en.invariant}`)} ${en.from} -> ${en.to}: ${dim(en.why)}`);
+          for (const cit of f.citations ?? []) console.log(`  ${cit.verified === false ? red("cite?") : dim("cite ")} ${cit.claim} ${dim(`"${cit.quote}" (${cit.source})`)}`);
+          for (const rem of (f.remediation ?? []).slice().sort((a, b) => a.priority - b.priority)) console.log(`  ${rem.priority}. [${rem.type}] ${rem.action}`);
           for (const u of f.unverified ?? []) console.log(`  ${yellow("need")} ${u.missing} ${dim(`-> ${u.how_to_get_it}`)}`);
-          for (const en of f.enforcement ?? []) console.log(`  ${yellow(`downgraded by ${en.invariant}`)} ${en.from} -> ${en.to} ${dim(en.why)}`);
         }
+        for (const w of r.warnings ?? []) console.log(`\n${yellow("warning")} ${w.why}\n  ${dim(`${w.where}: ${w.stack_text}`)}\n  ${dim(`"${w.quote}" (${w.source})`)}`);
       }
+      const all = mergeUsage(e.usage, e.digestUsage);
       rule();
-      console.log(dim(`${e.iteration} iterations, ${e.toolCalls} tool calls, ${ms(e.ms)} total, ${e.usage.total.toLocaleString()} tokens (${e.usage.prompt.toLocaleString()} in, ${e.usage.completion.toLocaleString()} out, ${e.usage.requests} requests)`));
+      console.log(dim(`${e.toolCalls} tool calls, ${ms(e.ms)}; tokens: agent ${n(e.usage.total)}, digests ${n(e.digestUsage.total)}, total ${n(all.total)} in ${all.requests} requests, largest ${n(all.maxRequest)}`));
       break;
     }
     case "error":
@@ -143,8 +138,12 @@ function show(e: AgentEvent) {
 }
 
 let failed = false;
-for await (const event of runAgent({ stack, files, target, cve, mode, model, maxIterations: max })) {
+for await (const event of runAgent({ stack, files, target, cve, sources, model, maxIterations: max })) {
   show(event);
   if (event.type === "error") failed = true;
+}
+if (has("--baseline") && cve) {
+  const b = await runBaseline({ files, cve, target });
+  console.log(`\n${dim("scanner baseline:")} ${VERDICT_LABELS[b.report.overall]} ${dim(`from "${b.version ?? "nothing"}"`)}`);
 }
 process.exit(failed ? 1 : 0);

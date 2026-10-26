@@ -153,3 +153,6 @@ vite.config.ts.timestamp-*
 
 # eval run outputs
 eval/out/
+
+# fetched pages, NVD records and advisory digests
+.cache/
