@@ -1,0 +1,275 @@
+{
+  "case": "g-split-cli-patched-fpm-stale",
+  "report": {
+    "schema_version": 2,
+    "cve": "",
+    "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "assessed_at": "2026-10-26T12:44:12.974Z",
+    "overall": "AFFECTED",
+    "summary": "Also installed: php8.4-common (share the source package; covered by the SAPI verdicts). CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php8.4-cli",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.4.27-1~deb13u1",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "fixed_in\":\"8.4.27-1~deb13u1\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.4-cli to 8.4.27-1~deb13u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "OSV row: Debian:13 php8.4 8.4.27-1~deb13u1 is fixed (fixed in 8.4.27-1~deb13u1) for CVE-2026-109618, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:6."
+      },
+      {
+        "package": "php8.4-cli",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.4.27-1~deb13u1",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "fixed_in\":\"8.4.27-1~deb13u1\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.4-cli to 8.4.27-1~deb13u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "OSV row: Debian:13 php8.4 8.4.27-1~deb13u1 is fixed (fixed in 8.4.27-1~deb13u1) for CVE-2026-109619, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:6."
+      },
+      {
+        "package": "php8.4-fpm",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.4.16-1~deb13u1",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status affected"
+        },
+        "exploitation_confidence": "presumed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "still affected",
+            "quote": "status\":\"affected\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
+            "verified": null
+          },
+          {
+            "claim": "fpm susceptible, no complete exploit demonstrated",
+            "quote": "susceptible, though no complete FPM exploit has been demonstrated",
+            "source": "GHSA-w8hw-w9fx-j79w advisory",
+            "verified": null
+          }
+        ],
+        "mitigations": [
+          {
+            "setting": "memory_limit",
+            "value": "-1",
+            "quote": "For installations that cannot update, setting and enforcing memory_limit=-1 administratively is the primary configuration mitigation.",
+            "source": "GHSA-w8hw-w9fx-j79w advisory"
+          }
+        ],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.4-fpm to 8.4.27-1~deb13u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by OSV row Debian:13 php8.4 8.4.16-1~deb13u1 affected."
+      },
+      {
+        "package": "php8.4-fpm",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.4.16-1~deb13u1",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status affected"
+        },
+        "exploitation_confidence": "confirmed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "still affected",
+            "quote": "status\":\"affected\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109619",
+            "verified": null
+          },
+          {
+            "claim": "FPM validated",
+            "quote": "Session lifecycle RCE was validated against mod_php and FPM.",
+            "source": "GHSA-6wmf-4rv5-p3rp advisory",
+            "verified": null
+          }
+        ],
+        "mitigations": [
+          {
+            "setting": "session.upload_progress.enabled",
+            "value": "0",
+            "quote": "For the session lifecycle case, set session.upload_progress.enabled=0 administratively and restart every worker.",
+            "source": "GHSA-6wmf-4rv5-p3rp advisory"
+          },
+          {
+            "setting": "pm.max_requests",
+            "value": "1",
+            "quote": "If performance is not a factor, consider limiting the number of requests a worker may execute using pm.max_requests=1.",
+            "source": "GHSA-6wmf-4rv5-p3rp advisory"
+          }
+        ],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.4-fpm to 8.4.27-1~deb13u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by OSV row Debian:13 php8.4 8.4.16-1~deb13u1 affected."
+      }
+    ],
+    "corrections": [
+      "overall was \"\"; recomputed from the findings as AFFECTED."
+    ],
+    "covered_packages": [
+      "php8.4-common"
+    ],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 10707,
+    "completion": 1905,
+    "total": 12612,
+    "requests": 3,
+    "maxRequest": 5574,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6371,
+        "prompt": 3207,
+        "completion": 112,
+        "total": 3319
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6803,
+        "prompt": 3639,
+        "completion": 80,
+        "total": 3719
+      },
+      {
+        "label": "agent 3",
+        "estimated": 7000,
+        "prompt": 3861,
+        "completion": 1713,
+        "total": 5574
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "total": 0,
+    "requests": 0,
+    "maxRequest": 0,
+    "perRequest": []
+  }
+}
