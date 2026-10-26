@@ -39,7 +39,8 @@ export const EXAMPLES = [
 
 // The php:8.1 image run stays recorded in fixtures/ and in the eval; it is no longer a button.
 
-export const DEFAULT_EXAMPLE = EXAMPLES[0].id;
+// Named explicitly, so reordering the buttons never changes what a visitor lands on.
+export const DEFAULT_EXAMPLE = "g-split-cli-patched-fpm-stale";
 
 export type Example = {
   id: string;

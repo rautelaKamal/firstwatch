@@ -50,6 +50,24 @@ const CODENAME: Record<string, string> = {
   "Ubuntu:20.04:LTS": "focal", "Ubuntu:22.04:LTS": "jammy", "Ubuntu:24.04:LTS": "noble",
 };
 
+/** What a citation's evidence is, named by its source rather than by the claim it supports. */
+function citationLabel(source: string, ecosystem: string | null): string {
+  const s = source.trim();
+  const ghsa = s.match(/GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/i)?.[0];
+  if (ghsa) return `Quote: ${ghsa}`;
+  if (/php\.net/i.test(s)) return "Quote: php.net announcement";
+  // The OSV check links each distribution's own tracker page.
+  if (/security-tracker\.debian\.org/i.test(s)) return "Source: Debian security data via OSV";
+  if (/ubuntu\.com\/security/i.test(s)) return "Source: Ubuntu security data via OSV";
+  if (/check_distro_fix|osv/i.test(s)) return `Source: ${ecosystem?.split(":")[0] ?? "distribution"} security data via OSV`;
+  if (/^NVD|nvd\.nist|fetch_cve/i.test(s)) return `Source: NVD record${s.match(/CVE-\d{4}-\d+/i) ? ` ${s.match(/CVE-\d{4}-\d+/i)![0]}` : ""}`;
+  if (/version_in_range|compare_versions/i.test(s)) return "Source: version range check";
+  if (/check_eol|endoflife/i.test(s)) return "Source: endoflife.date";
+  if (/usn-/i.test(s)) return "Source: Ubuntu security notice";
+  if (/^https?:\/\//i.test(s)) return `Source: ${new URL(s).hostname}`;
+  return `Source: ${s}`;
+}
+
 /** The engine's evidence sentence, rewritten as something a person reads in one pass. */
 function explain(reason: string): string {
   let m = reason.match(/^OSV row: (\S+) (\S+) (\S+) is fixed(?: \(fixed in (\S+)\))?(?: for (\S+))?, in this stack's own ecosystem, with no affected row; installed version read from (.+?)\.$/);
@@ -208,7 +226,7 @@ function ResultBanner({ report, scanner, ecosystem, held }: { report: FirstWatch
   );
 }
 
-function PackageCard({ name, findings, scanner }: { name: string; findings: PackageFinding[]; scanner: Verdict | null }) {
+function PackageCard({ name, findings, scanner, ecosystem }: { name: string; findings: PackageFinding[]; scanner: Verdict | null; ecosystem: string | null }) {
   const verdict = worst(findings.map((f) => f.verdict));
   const first = findings[0];
   const downgrades = findings.reduce((n, f) => n + (f.enforcement?.length ?? 0), 0);
@@ -255,9 +273,10 @@ function PackageCard({ name, findings, scanner }: { name: string; findings: Pack
                   <details key={j} className="group rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-800">
                     <summary className="cursor-pointer list-none text-neutral-800 marker:hidden dark:text-neutral-200">
                       <span className="mr-1 inline-block text-neutral-400 transition group-open:rotate-90">›</span>
-                      {c.claim}
+                      {citationLabel(c.source, ecosystem)}
                       {c.verified === false && <span className="ml-2 text-xs text-red-700 dark:text-red-300">quote not found in source</span>}
                     </summary>
+                    <p className="mt-2 text-neutral-700 dark:text-neutral-300">{c.claim}</p>
                     <blockquote className="mt-2 border-l-2 border-neutral-300 pl-3 text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">{c.quote}</blockquote>
                     <p className="mt-1 break-all text-xs text-neutral-500">
                       {isUrl(c.source) ? <a href={c.source} target="_blank" rel="noreferrer" className="underline underline-offset-2">{c.source}</a> : c.source}
@@ -298,6 +317,8 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
   const [inputsOpen, setInputsOpen] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
+  // Set by a click; consumed once the result has rendered. Never set on first load.
+  const scrollPending = useRef(false);
 
   const split = useMemo(() => splitRuntime(runtime), [runtime]);
   const example = examples.find((e) => e.id === exampleId) ?? null;
@@ -313,7 +334,8 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     setNotice(null);
     setFailure(null);
     setInputsOpen(false);
-    requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    // Scrolling now would aim at a spot that moves when the inputs above collapse.
+    scrollPending.current = true;
     void stream(opts);
   }
 
@@ -370,9 +392,19 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     run({ runtime: ex.runtime, config: ex.config, exampleId: ex.id, live: false });
   };
 
+  // Bring the example sentence and verdict box to the top once a clicked run has a result.
+  useEffect(() => {
+    if (!report || !scrollPending.current) return;
+    scrollPending.current = false;
+    requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [report]);
+
   useEffect(() => {
     if (started.current || !initial) return;
     started.current = true;
+    // A reload should open at the top, on the headline, not where the last visit left off.
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
     void stream({ runtime: initial.runtime, config: initial.config, exampleId: initial.id, live: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -513,7 +545,7 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
               {rawUrl && <a href={rawUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">View raw report JSON</a>}
             </div>
 
-            {[...byPackage].map(([name, fs]) => <PackageCard key={name} name={name} findings={fs} scanner={scanner} />)}
+            {[...byPackage].map(([name, fs]) => <PackageCard key={name} name={name} findings={fs} scanner={scanner} ecosystem={ecosystem} />)}
 
             {report.fixed_versions && report.fixed_versions.length > 0 && (
               <details className="rounded-xl border border-neutral-200 p-4 text-sm dark:border-neutral-800">
