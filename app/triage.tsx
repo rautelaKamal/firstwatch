@@ -357,7 +357,7 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
 
   type RunOpts = { runtime: string; config: Record<string, string>; exampleId: string | null; live: boolean };
 
-  function run(opts: RunOpts) {
+  function run(opts: RunOpts, { scroll = true }: { scroll?: boolean } = {}) {
     setRunning(true);
     setLog([]);
     setReport(null);
@@ -374,7 +374,7 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     setNow(Date.now());
     setInputsOpen(false);
     // Scrolling now would aim at a spot that moves when the inputs above collapse.
-    scrollPending.current = true;
+    scrollPending.current = scroll;
     void stream(opts);
   }
 
@@ -465,11 +465,13 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     }
   }
 
-  const pickExample = (ex: Example) => {
+  const pickExample = (ex: Example, { scroll = true }: { scroll?: boolean } = {}) => {
     setRuntime(ex.runtime);
     setConfig(ex.config);
     setExampleId(ex.id);
-    run({ runtime: ex.runtime, config: ex.config, exampleId: ex.id, live: false });
+    // Keep the address shareable: ?example=a opens this case for anyone with the link.
+    history.replaceState(null, "", `?example=${ex.id.split("-")[0]}`);
+    run({ runtime: ex.runtime, config: ex.config, exampleId: ex.id, live: false }, { scroll });
   };
 
   // A ticking clock while a live run streams, so a long rate-limit wait never looks like a hang.
@@ -492,6 +494,13 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     // A reload should open at the top, on the headline, not where the last visit left off.
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
     window.scrollTo(0, 0);
+    // A deep link (?example=a, or the full case id) opens that case instead of the default, without scrolling.
+    const wanted = new URLSearchParams(window.location.search).get("example")?.trim().toLowerCase();
+    const linked = wanted ? examples.find((e) => e.id === wanted || e.id.startsWith(`${wanted}-`)) : undefined;
+    if (linked && linked.id !== initial.id) {
+      queueMicrotask(() => pickExample(linked, { scroll: false }));
+      return;
+    }
     void stream({ runtime: initial.runtime, config: initial.config, exampleId: initial.id, live: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -19,15 +19,13 @@ TODO(Kamal): explain in your own words.
 
 ## Demo
 
-Each example opens on the site as a recorded live run. One click replays it; no model is called.
+Each link opens that case on the site as a recorded live run; no model is called. `?example=g`, `?example=a` and `?example=e` work anywhere.
 
 | Case | Version scanner | FirstWatch | What it shows |
 |---|---|---|---|
-| [Debian 13, FPM held back](https://firstwatch-xi.vercel.app) (g) | Not affected | **Affected** | `php8.4-fpm` held at `8.4.16-1~deb13u1` while the CLI that `php -v` reports was patched to `8.4.27-1~deb13u1`. The scanner clears the host; the FPM package is still vulnerable. |
-| [Ubuntu 22.04, patched](https://firstwatch-xi.vercel.app) (a) | Affected | **Not affected** | Upstream 8.1 has no fixed release, but Ubuntu backported the fix into `8.1.2-1ubuntu2.28`. The scanner raises a false alarm. |
-| [Debian 12, no security pocket](https://firstwatch-xi.vercel.app) (e) | Affected | **Affected** | Both agree, but FirstWatch names the packages, Debian's fixed version (`8.2.35-1~deb12u1`), and the exact `apt-get --only-upgrade` command, plus the missing `bookworm-security` line. |
-
-TODO(Kamal): the three links all open the site, which loads case (g) by default. Decide whether to add per-example links.
+| [Debian 13, FPM held back](https://firstwatch-xi.vercel.app/?example=g) (g) | Not affected | **Affected** | `php8.4-fpm` held at `8.4.16-1~deb13u1` while the CLI that `php -v` reports was patched to `8.4.27-1~deb13u1`. The scanner clears the host; the FPM package is still vulnerable. |
+| [Ubuntu 22.04, patched](https://firstwatch-xi.vercel.app/?example=a) (a) | Affected | **Not affected** | Upstream 8.1 has no fixed release, but Ubuntu backported the fix into `8.1.2-1ubuntu2.28`. The scanner raises a false alarm. |
+| [Debian 12, no security pocket](https://firstwatch-xi.vercel.app/?example=e) (e) | Affected | **Affected** | Both agree, but FirstWatch names the packages, Debian's fixed version (`8.2.35-1~deb12u1`), and the exact `apt-get --only-upgrade` command, plus the missing `bookworm-security` line. |
 
 ## How it works
 
@@ -176,6 +174,6 @@ Data: [OSV.dev](https://osv.dev), [NVD](https://nvd.nist.gov), [endoflife.date](
 
 Model: `openai/gpt-oss-120b` via [Groq](https://groq.com). Built with Next.js, hosted on Vercel.
 
-TODO(Kamal): acknowledgements.
+TODO(Kamal): acknowledgements, and a deliberate decision about naming the tools you used to build this. Do not leave it blank by default.
 
 License: see [LICENSE](LICENSE).
