@@ -76,6 +76,9 @@ function show(e: AgentEvent) {
     case "digest":
       console.log(`${dim("digest")} ${e.url}: ${e.error ? red(e.error) : e.cached ? `cached, ${e.items} items` : `${e.items} verified items, ${e.dropped} discarded, ${n(e.tokens)} tokens`}`);
       break;
+    case "model_switch":
+      console.log(`${yellow("model ")} ${e.from} -> ${e.to}: ${e.reason}`);
+      break;
     case "waiting":
       console.log(`${yellow("wait  ")} ${ms(e.ms)}: ${e.reason}`);
       break;

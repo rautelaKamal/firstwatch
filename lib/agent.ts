@@ -1110,6 +1110,7 @@ export type AgentEvent =
   | { type: "digest"; url: string; cached: boolean; items: number; dropped: number; chunks: number; tokens: number; error?: string }
   | { type: "digest_request"; index: number; of: number; estimated: number }
   | { type: "waiting"; ms: number; reason: string }
+  | { type: "model_switch"; from: string; to: string; reason: string }
   | { type: "compacted"; note: string; estimated: number }
   | { type: "request"; label: string; estimated: number; prompt: number; completion: number; total: number; finish: string }
   | { type: "thinking"; iteration: number; text: string }

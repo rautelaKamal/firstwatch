@@ -2,7 +2,7 @@
  * POST /api/triage: run FirstWatch on uploaded stack files and stream every
  * step to the browser as server-sent events.
  *
- * Body: { files: { [name]: text }, exampleId?: string, live?: boolean }
+ * Body: { files: { [name]: text }, exampleId?: string, live?: boolean, model?: string }
  *
  * By default this replays a saved run and makes no model calls, so the page
  * can be developed and demoed for free. { live: true } runs the real agent.
@@ -73,7 +73,7 @@ async function* replay(exampleId: string | undefined, files: Record<string, stri
 }
 
 export async function POST(req: Request) {
-  let body: { files?: unknown; exampleId?: unknown; live?: unknown };
+  let body: { files?: unknown; exampleId?: unknown; live?: unknown; model?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -87,6 +87,11 @@ export async function POST(req: Request) {
   if (!Object.keys(files).length) return Response.json({ error: "No files were sent." }, { status: 400 });
 
   const exampleId = typeof body.exampleId === "string" ? body.exampleId : undefined;
+  // A visitor may pick a model only from the ones this deployment is configured for.
+  const allowed = [process.env.LLM_MODEL, process.env.LLM_FALLBACK_MODEL, ...(process.env.LLM_MODELS ?? "").split(",")]
+    .map((m) => m?.trim())
+    .filter((m): m is string => !!m);
+  const model = typeof body.model === "string" && allowed.includes(body.model) ? body.model : undefined;
   const live = body.live === true;
   const spec = caseSpec(exampleId);
   const encoder = new TextEncoder();
@@ -98,7 +103,7 @@ export async function POST(req: Request) {
         const baseline = await runBaseline({ files, cve: spec.cve, cves: spec.cves, target: spec.target });
         send({ type: "baseline", report: baseline.report, version: baseline.version });
         const events = live
-          ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources })
+          ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources, model })
           : replay(exampleId, files);
         for await (const event of events) send(event);
       } catch (e) {

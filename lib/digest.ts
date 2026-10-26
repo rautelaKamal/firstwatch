@@ -15,7 +15,7 @@
  * invariants still check ranges and mitigation quotes against the raw page.
  */
 
-import { cacheGet, cachePut, cachedAdvisory, hash } from "./cache";
+import { cacheEntries, cacheGet, cachePut, cachedAdvisory, hash } from "./cache";
 import {
   addRequest,
   callModel,
@@ -323,8 +323,14 @@ export async function* digestAdvisory(
 
   const ghsa = parseGhsa(page.text);
   const prose = ghsa ? ghsa.prose : focusOn(page.text, focus);
-  const key = `digest-v${DIGEST_VERSION}-${hash(`${url}|${hash(page.text)}|${focus.join(",")}|${cfg.model}`)}`;
-  const hit = cacheGet<AdvisoryDigest>(key);
+  // Keyed by page and focus only. A digest is a verified subset of the page, so
+  // it stays valid whichever model later reads it, and switching models must
+  // not rebuild every digest. Older keys also carried the model and page hash.
+  const key = `digest-v${DIGEST_VERSION}-${hash(`${url}|${focus.join(",")}`)}`;
+  const hit =
+    cacheGet<AdvisoryDigest>(key) ??
+    cacheEntries<AdvisoryDigest>(`digest-v${DIGEST_VERSION}-`).find((d) => d?.url === url && (d.focus ?? []).join(",") === focus.join(",")) ??
+    null;
   if (hit) return { ok: true, digest: hit, raw: page.text, cached: true, usage: emptyUsage() };
 
   const frame = (i: number, n: number, chunk: string): ChatMessage[] => [

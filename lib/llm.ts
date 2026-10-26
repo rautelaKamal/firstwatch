@@ -34,7 +34,11 @@ export type LlmConfig = {
   maxRequestTokens: number;
   /** gpt-oss and other reasoning models: spend as little as possible on hidden reasoning. */
   reasoningEffort: string | null;
+  /** Used when the model's daily budget runs out. Groq budgets each model separately. */
+  fallbackModel: string | null;
 };
+
+const effortFor = (model: string) => process.env.LLM_REASONING_EFFORT ?? (/gpt-oss/i.test(model) ? "low" : null);
 
 export const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
 export const DEFAULT_MODEL = "openai/gpt-oss-120b";
@@ -50,10 +54,8 @@ export function llmConfig(overrides: Partial<LlmConfig> = {}): LlmConfig | null 
     tpm: overrides.tpm ?? Number(process.env.LLM_TPM ?? 8000),
     rpm: overrides.rpm ?? Number(process.env.LLM_RPM ?? 30),
     maxRequestTokens: overrides.maxRequestTokens ?? Number(process.env.LLM_MAX_REQUEST_TOKENS ?? 7000),
-    reasoningEffort:
-      overrides.reasoningEffort !== undefined
-        ? overrides.reasoningEffort
-        : (process.env.LLM_REASONING_EFFORT ?? (/gpt-oss/i.test(model) ? "low" : null)),
+    reasoningEffort: overrides.reasoningEffort !== undefined ? overrides.reasoningEffort : effortFor(model),
+    fallbackModel: overrides.fallbackModel ?? process.env.LLM_FALLBACK_MODEL ?? null,
   };
 }
 
@@ -205,7 +207,8 @@ export async function chat(cfg: LlmConfig, req: ChatRequest): Promise<ChatResult
 
   return {
     ok: true,
-    content: choice?.message?.content ?? "",
+    // Qwen and similar models may think out loud in the reply itself.
+    content: (choice?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>\s*/g, ""),
     toolCalls: choice?.message?.tool_calls ?? [],
     finish: choice?.finish_reason ?? "unknown",
     usage: { prompt, completion, total },
@@ -213,7 +216,9 @@ export async function chat(cfg: LlmConfig, req: ChatRequest): Promise<ChatResult
   };
 }
 
-export type WaitEvent = { type: "waiting"; ms: number; reason: string };
+export type WaitEvent =
+  | { type: "waiting"; ms: number; reason: string }
+  | { type: "model_switch"; from: string; to: string; reason: string };
 
 /**
  * Send one request inside the budget: wait for room in the window, refuse
@@ -235,6 +240,14 @@ export async function* callModel(cfg: LlmConfig, req: ChatRequest): AsyncGenerat
     }
     const r = await chat(cfg, req);
     if (r.ok || r.status !== 429) return r;
+    // A daily limit will not clear by waiting: move to the fallback model, once.
+    if (/per day|\bTPD\b|\bRPD\b|daily/i.test(r.error) && cfg.fallbackModel && cfg.model !== cfg.fallbackModel) {
+      const from = cfg.model;
+      cfg.model = cfg.fallbackModel;
+      cfg.reasoningEffort = effortFor(cfg.model);
+      yield { type: "model_switch", from, to: cfg.model, reason: "the daily token budget for this model is used up" };
+      continue;
+    }
     const ms = r.retryAfterMs ?? 10_000;
     yield { type: "waiting", ms, reason: "the provider returned 429 (rate limited)" };
     await sleep(ms);

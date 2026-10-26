@@ -48,6 +48,8 @@ function describe(e: Event): LogLine | null {
       return e.error
         ? { tone: "error", text: `Could not digest ${s(e.url)}: ${s(e.error)}` }
         : { tone: "info", text: `Advisory ${s(e.url)}: ${s(e.items)} verified facts${e.cached ? " (cached)" : ""}` };
+    case "model_switch":
+      return { tone: "warn", text: `Switched model from ${s(e.from)} to ${s(e.to)}: ${s(e.reason)}` };
     case "waiting":
       return { tone: "warn", text: `Waiting ${Math.round(Number(e.ms) / 1000)}s for the rate limit` };
     case "tool_call":

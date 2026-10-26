@@ -152,6 +152,7 @@ async function runFirstWatch(k: Loaded): Promise<Result> {
     if (e.type === "digest") console.log(`    ${dim("digest")} ${e.url} ${e.error ? red(e.error.slice(0, 160)) : e.cached ? dim(`cached, ${e.items} items`) : `${e.items} items kept, ${e.dropped} dropped, ${e.chunks} part(s), ${n(e.tokens)} tokens`}`);
     if (e.type === "digest_request" && verbose) console.log(`    ${dim("digest request")} part ${e.index} of ${e.of}, ~${n(e.estimated)} tokens estimated`);
     if (e.type === "nvd") console.log(`    ${dim("nvd   ")} ${e.id}: ${e.ranges} php ranges${e.note ? ` (${e.note})` : ""}`);
+    if (e.type === "model_switch") console.log(`    ${yellow("model ")} ${e.from} -> ${e.to}: ${e.reason}`);
     if (e.type === "waiting") console.log(`    ${yellow("wait  ")} ${ms(e.ms)}: ${e.reason}`);
     if (e.type === "compacted") console.log(`    ${yellow("compact")} ${e.note}`);
     if (e.type === "request" && verbose) console.log(`    ${dim("request")} ${e.label}: ${n(e.total)} tokens (${n(e.prompt)} in, ${n(e.completion)} out; estimated ${n(e.estimated)}) ${e.finish === "length" ? red("cut off") : ""}`);

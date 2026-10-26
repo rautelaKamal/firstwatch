@@ -398,6 +398,11 @@ await test("digest: fields in code, prose verified, a cut-off reply is split not
     const again = await run();
     assert.ok(again.ok && again.cached, "second read comes from the cache");
     assert.equal(modelCalls, 3, "and costs nothing");
+    const it = digestAdvisory(llmConfig({ apiKey: "k", baseUrl: "https://llm.invalid/v1", model: "qwen/qwen3.8-27b" })!, GHSA_URL);
+    let step = await it.next();
+    while (!step.done) step = await it.next();
+    assert.ok(step.value.ok && step.value.cached, "a digest stays valid when the model changes");
+    assert.equal(modelCalls, 3);
   } finally {
     globalThis.fetch = realFetch;
     delete process.env.FIRSTWATCH_CACHE_DIR;
@@ -489,6 +494,63 @@ await test("a distro 8.1 package gets upstream_release_exists false but no isola
   const out = annotate(r, emptyLedger(caseFacts("a-ubuntu2204-patched")), [ghsaWithPatched()]);
   assert.equal(out.findings[0].eol?.upstream_release_exists, false);
   assert.equal(out.findings[0].remediation.length, 0, "the distro backport fixed it; nothing to isolate");
+});
+
+/* ================================================================== *
+ * Per-run model and the daily-budget fallback
+ * ================================================================== */
+
+await test("a daily-limit 429 switches to the fallback model once, then succeeds", async () => {
+  resetBudget();
+  const models: string[] = [];
+  stubFetch((_u, init) => {
+    const body = JSON.parse(String(init?.body)) as { model: string; reasoning_effort?: string };
+    models.push(`${body.model}${body.reasoning_effort ? `:${body.reasoning_effort}` : ""}`);
+    return body.model === "openai/gpt-oss-120b"
+      ? new Response('{"error":{"message":"Rate limit reached for model openai/gpt-oss-120b on tokens per day (TPD): Limit 200000"}}', { status: 429 })
+      : completion(120, "ok");
+  });
+  const c = llmConfig({ apiKey: "k", baseUrl: "https://llm.invalid/v1", model: "openai/gpt-oss-120b", fallbackModel: "qwen/qwen3.8-27b" })!;
+  const events: string[] = [];
+  const it = callModel(c, { messages: [{ role: "user", content: "hi" }], maxTokens: 100 });
+  let step = await it.next();
+  while (!step.done) {
+    events.push(step.value.type);
+    step = await it.next();
+  }
+  globalThis.fetch = realFetch;
+  resetBudget();
+  assert.ok(step.value.ok);
+  assert.deepEqual(models, ["openai/gpt-oss-120b:low", "qwen/qwen3.8-27b"], "reasoning effort is only sent to gpt-oss");
+  assert.deepEqual(events, ["model_switch"]);
+  assert.equal(c.model, "qwen/qwen3.8-27b", "the rest of the run stays on the fallback");
+});
+
+await test("a per-minute 429 waits instead of switching models", async () => {
+  resetBudget();
+  let calls = 0;
+  stubFetch(() => (++calls === 1 ? new Response('{"error":{"message":"Please try again in 0.01s."}}', { status: 429 }) : completion(50)));
+  const c = llmConfig({ apiKey: "k", baseUrl: "https://llm.invalid/v1", model: "openai/gpt-oss-120b", fallbackModel: "qwen/qwen3.8-27b" })!;
+  const it = callModel(c, { messages: [{ role: "user", content: "hi" }], maxTokens: 50 });
+  let step = await it.next();
+  const types: string[] = [];
+  while (!step.done) {
+    types.push(step.value.type);
+    step = await it.next();
+  }
+  globalThis.fetch = realFetch;
+  resetBudget();
+  assert.deepEqual(types, ["waiting"]);
+  assert.equal(c.model, "openai/gpt-oss-120b");
+});
+
+await test("<think> blocks are stripped from a reply", async () => {
+  stubFetch(() => completion(80, '<think>the version is in range {maybe}</think>\n{"ok":true}'));
+  const r = await chat(cfg(), { messages: [{ role: "user", content: "hi" }], maxTokens: 50 });
+  globalThis.fetch = realFetch;
+  resetBudget();
+  assert.ok(r.ok);
+  if (r.ok) assert.equal(r.content, '{"ok":true}');
 });
 
 /* --- report ------------------------------------------------------- */
