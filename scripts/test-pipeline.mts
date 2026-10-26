@@ -26,6 +26,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { chunkText, digestAdvisory, flattenDigest, focusOn, parseGhsa, renderDigest, verifyItems, type AdvisoryDigest } from "../lib/digest";
+import { allowLiveRun, resetLimits } from "../lib/limits";
 import { scoreDigest } from "../lib/recall";
 import { callModel, chat, estimateRequest, llmConfig, planWait, resetBudget, type ChatMessage } from "../lib/llm";
 import { parse_stack } from "../lib/tools";
@@ -551,6 +552,66 @@ await test("<think> blocks are stripped from a reply", async () => {
   resetBudget();
   assert.ok(r.ok);
   if (r.ok) assert.equal(r.content, '{"ok":true}');
+});
+
+/* ================================================================== *
+ * Live-run limits on a deployed site
+ * ================================================================== */
+
+const withEnv = async (env: Record<string, string | undefined>, fn: () => Promise<void>) => {
+  const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+  const apply = (k: string, v: string | undefined) => {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  };
+  for (const [k, v] of Object.entries(env)) apply(k, v);
+  try {
+    await fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) apply(k, v);
+    resetLimits();
+  }
+};
+const NO_REDIS = { KV_REST_API_URL: undefined, KV_REST_API_TOKEN: undefined, UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined };
+
+await test("live runs are off unless LIVE_ENABLED=true, and need a key", async () => {
+  await withEnv({ ...NO_REDIS, LIVE_ENABLED: undefined, LLM_API_KEY: "k" }, async () => {
+    assert.equal((await allowLiveRun("1.1.1.1")).ok, false);
+  });
+  await withEnv({ ...NO_REDIS, LIVE_ENABLED: "true", LLM_API_KEY: undefined, GROQ_API_KEY: undefined }, async () => {
+    const d = await allowLiveRun("1.1.1.1");
+    assert.ok(!d.ok && d.reason === "no_key");
+  });
+});
+
+await test("memory limiter: one run per visitor per window, and a daily cap", async () => {
+  await withEnv({ ...NO_REDIS, LIVE_ENABLED: "true", LLM_API_KEY: "k", LIVE_DAILY_CAP: "3", LIVE_IP_WINDOW_MINUTES: "10" }, async () => {
+    assert.ok((await allowLiveRun("10.0.0.1")).ok);
+    const again = await allowLiveRun("10.0.0.1");
+    assert.ok(!again.ok && again.reason === "ip_window" && /Showing the saved run instead/.test(again.message));
+    assert.ok((await allowLiveRun("10.0.0.2")).ok);
+    assert.ok((await allowLiveRun("10.0.0.3")).ok);
+    const capped = await allowLiveRun("10.0.0.4");
+    assert.ok(!capped.ok && capped.reason === "daily_cap");
+  });
+});
+
+await test("redis limiter: global counts, and it fails closed when the store is down", async () => {
+  await withEnv({ LIVE_ENABLED: "true", LLM_API_KEY: "k", LIVE_DAILY_CAP: "10", KV_REST_API_URL: "https://redis.invalid", KV_REST_API_TOKEN: "t" }, async () => {
+    const answer = (lock: string | null, count: number) =>
+      stubFetch(() => new Response(JSON.stringify([{ result: lock }, { result: count }, { result: 1 }]), { status: 200 }));
+    answer("OK", 1);
+    assert.deepEqual(await allowLiveRun("a"), { ok: true, store: "redis" });
+    answer(null, 2);
+    assert.equal(((await allowLiveRun("a")) as { reason?: string }).reason, "ip_window");
+    answer("OK", 11);
+    assert.equal(((await allowLiveRun("b")) as { reason?: string }).reason, "daily_cap");
+    stubFetch(() => {
+      throw new Error("unreachable");
+    });
+    assert.equal(((await allowLiveRun("c")) as { reason?: string }).reason, "store_error");
+    globalThis.fetch = realFetch;
+  });
 });
 
 /* --- report ------------------------------------------------------- */

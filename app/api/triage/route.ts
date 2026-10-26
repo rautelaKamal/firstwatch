@@ -5,8 +5,9 @@
  * Body: { files: { [name]: text }, exampleId?: string, live?: boolean, model?: string }
  *
  * By default this replays a saved run and makes no model calls, so the page
- * can be developed and demoed for free. { live: true } runs the real agent.
- * The scanner baseline is deterministic code and always runs.
+ * can be developed and demoed for free. { live: true } runs the real agent
+ * when lib/limits.ts allows it, and otherwise says why and replays. The
+ * scanner baseline and stack parsing are code and always run.
  *
  * No `export const runtime`: Cache Components is on in next.config.ts, which
  * requires the Node.js runtime (the default) and rejects the runtime export,
@@ -16,6 +17,7 @@
 import { runAgent, type AgentEvent, type FirstWatchReport } from "@/lib/agent";
 import { runBaseline } from "@/lib/baseline";
 import { caseSpec, savedRun } from "@/lib/examples";
+import { allowLiveRun, clientIp } from "@/lib/limits";
 import { emptyUsage, type TokenUsage } from "@/lib/llm";
 import { parse_stack } from "@/lib/tools";
 
@@ -28,7 +30,8 @@ const MAX_FILE_CHARS = 200_000;
 export type StreamEvent =
   | AgentEvent
   | { type: "baseline"; report: FirstWatchReport; version: string | null }
-  | { type: "replay"; note: string };
+  | { type: "replay"; note: string }
+  | { type: "live_unavailable"; reason: string; message: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,6 +76,7 @@ async function* replay(exampleId: string | undefined, files: Record<string, stri
 }
 
 export async function POST(req: Request) {
+  const ip = clientIp(req);
   let body: { files?: unknown; exampleId?: unknown; live?: unknown; model?: unknown };
   try {
     body = await req.json();
@@ -92,7 +96,7 @@ export async function POST(req: Request) {
     .map((m) => m?.trim())
     .filter((m): m is string => !!m);
   const model = typeof body.model === "string" && allowed.includes(body.model) ? body.model : undefined;
-  const live = body.live === true;
+  const wantsLive = body.live === true;
   const spec = caseSpec(exampleId);
   const encoder = new TextEncoder();
 
@@ -100,8 +104,16 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (event: StreamEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       try {
+        // Code, free, always live.
         const baseline = await runBaseline({ files, cve: spec.cve, cves: spec.cves, target: spec.target });
         send({ type: "baseline", report: baseline.report, version: baseline.version });
+
+        let live = false;
+        if (wantsLive) {
+          const decision = await allowLiveRun(ip);
+          live = decision.ok;
+          if (!decision.ok) send({ type: "live_unavailable", reason: decision.reason, message: decision.message });
+        }
         const events = live
           ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources, model })
           : replay(exampleId, files);

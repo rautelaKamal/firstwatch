@@ -36,6 +36,8 @@ function describe(e: Event): LogLine | null {
   switch (e.type) {
     case "replay":
       return { tone: "warn", text: s(e.note) };
+    case "live_unavailable":
+      return { tone: "warn", text: s(e.message) };
     case "baseline":
       return { tone: "info", text: `Scanner baseline: ${VERDICT_LABELS[(e.report as FirstWatchReport).overall]} from version "${s(e.version) || "none"}"` };
     case "start":
@@ -179,13 +181,14 @@ function PackageCard({ name, findings, scanner }: { name: string; findings: Pack
   );
 }
 
-export default function Triage({ examples, fields }: { examples: Example[]; fields: Field[] }) {
+export default function Triage({ examples, fields, liveEnabled }: { examples: Example[]; fields: Field[]; liveEnabled: boolean }) {
   const [files, setFiles] = useState<Record<string, string>>({});
   const [exampleId, setExampleId] = useState<string | null>(null);
   const [live, setLive] = useState(false);
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<LogLine[]>([]);
   const [report, setReport] = useState<FirstWatchReport | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<FirstWatchReport | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -210,6 +213,7 @@ export default function Triage({ examples, fields }: { examples: Example[]; fiel
     setLog([]);
     setReport(null);
     setBaseline(null);
+    setNotice(null);
     resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     const push = (l: LogLine | null) => l && setLog((prev) => [...prev, l]);
     try {
@@ -237,6 +241,7 @@ export default function Triage({ examples, fields }: { examples: Example[]; fiel
           const event = JSON.parse(line.slice(6)) as Event;
           if (event.type === "baseline") setBaseline(event.report as FirstWatchReport);
           if (event.type === "final" && event.report) setReport(event.report as FirstWatchReport);
+          if (event.type === "live_unavailable") setNotice(String(event.message));
           push(describe(event));
         }
       }
@@ -312,14 +317,23 @@ export default function Triage({ examples, fields }: { examples: Example[]; fiel
           >
             {running ? "Running…" : "Run triage"}
           </button>
-          <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
-            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="size-4" />
-            Live run <span className="text-xs text-neutral-500">(calls the model; off replays a saved run)</span>
-          </label>
+          {liveEnabled ? (
+            <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+              <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="size-4" />
+              Live run <span className="text-xs text-neutral-500">(calls the model, limited per day; off replays a saved run)</span>
+            </label>
+          ) : (
+            <span className="text-xs text-neutral-500">Replaying saved runs. Live runs are off on this deployment.</span>
+          )}
         </div>
       </section>
 
       <div ref={resultsRef} className="scroll-mt-6 space-y-8">
+        {notice && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+            {notice}
+          </p>
+        )}
         {log.length > 0 && (
           <section>
             <h2 className="text-sm font-medium text-neutral-500">Steps</h2>

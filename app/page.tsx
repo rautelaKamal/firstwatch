@@ -15,7 +15,7 @@ export default function Page() {
           CVE-2026-109619.
         </p>
       </header>
-      <Triage examples={examples} fields={FIELDS.map((f) => ({ ...f }))} />
+      <Triage examples={examples} fields={FIELDS.map((f) => ({ ...f }))} liveEnabled={process.env.LIVE_ENABLED === "true"} />
     </main>
   );
 }
