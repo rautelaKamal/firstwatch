@@ -357,6 +357,7 @@ await test("parseGhsa reads affected, patched and the CVE id from the page, and 
 await test("digest: fields in code, prose verified, a cut-off reply is split not enlarged, then cached", async () => {
   const cacheDir = mkdtempSync(join(tmpdir(), "fw-digest-"));
   process.env.FIRSTWATCH_CACHE_DIR = cacheDir;
+  process.env.FIRSTWATCH_SEED_DIR = join(cacheDir, "no-seed"); // isolate from the committed seed
   resetBudget();
   let modelCalls = 0;
   const caps: number[] = [];
@@ -407,6 +408,7 @@ await test("digest: fields in code, prose verified, a cut-off reply is split not
   } finally {
     globalThis.fetch = realFetch;
     delete process.env.FIRSTWATCH_CACHE_DIR;
+    delete process.env.FIRSTWATCH_SEED_DIR;
     rmSync(cacheDir, { recursive: true, force: true });
     resetBudget();
   }
@@ -572,6 +574,35 @@ await test("a request that would wait past the deadline is not started", async (
   assert.equal(step.value.ok, false);
   assert.match((step.value as { error: string }).error, /time limit/);
   assert.equal(sent, 1, "only the request that filled the window was sent");
+});
+
+await test("a cold deploy with no network still gets digests and NVD from the committed seed", async () => {
+  const empty = mkdtempSync(join(tmpdir(), "fw-cold-"));
+  process.env.FIRSTWATCH_CACHE_DIR = empty;
+  let modelCalls = 0;
+  stubFetch((url) => {
+    if (url.includes("llm.invalid")) modelCalls++;
+    throw new Error("no network on this instance");
+  });
+  try {
+    const { cachedCve } = await import("../lib/cache");
+    for (const id of ["CVE-2026-109618", "CVE-2026-109619"]) {
+      const rec = await cachedCve(id);
+      assert.ok(rec.ok && "found" in rec && rec.found, `${id} from the seed`);
+    }
+    for (const url of [GHSA_URL, "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"]) {
+      const it = digestAdvisory(cfg(), url);
+      let step = await it.next();
+      while (!step.done) step = await it.next();
+      assert.ok(step.value.ok && step.value.cached, `${url} digest from the seed`);
+      if (step.value.ok) assert.ok(step.value.digest.items.length > 10);
+    }
+    assert.equal(modelCalls, 0, "not a single model call");
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.FIRSTWATCH_CACHE_DIR;
+    rmSync(empty, { recursive: true, force: true });
+  }
 });
 
 /* ================================================================== *

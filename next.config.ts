@@ -4,7 +4,8 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   // The triage route reads example cases and saved runs from disk at request time.
   outputFileTracingIncludes: {
-    "/api/triage": ["./eval/cases/**/*", "./fixtures/**/*"],
+    // Examples and saved runs for replay, plus the committed cache seed (digests, NVD, advisory pages).
+    "/api/triage": ["./eval/cases/**/*", "./fixtures/**/*", "./data/cache/**/*"],
   },
   partialPrefetching: true,
   turbopack: {
