@@ -1,0 +1,278 @@
+{
+  "case": "a-ubuntu2204-patched",
+  "report": {
+    "schema_version": 2,
+    "cve": "CVE-2026-109618, CVE-2026-109619",
+    "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "assessed_at": "2026-10-26T00:00:00Z",
+    "overall": "NOT_AFFECTED",
+    "summary": "Both engine packages are fixed in Ubuntu 22.04 LTS backports; no mitigation needed beyond patch status. Also installed: php8.1, php8.1-common, php8.1-mysql (share the source package; covered by the SAPI verdicts). CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php8.1-cli",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.1.2-1ubuntu2.28",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status fixed, fixed_in 8.1.2-1ubuntu2.28"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "4.0",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "fixed in Ubuntu backport",
+            "quote": "UBUNTU fixed it in 8.1.2-1ubuntu2.28, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:22.04:LTS php8.1 8.1.2-1ubuntu2.28 is fixed (fixed in 8.1.2-1ubuntu2.28) for CVE-2026-109618, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:7."
+      },
+      {
+        "package": "php8.1-cli",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.1.2-1ubuntu2.28",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status fixed, fixed_in 8.1.2-1ubuntu2.28"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "4.0",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "fixed in Ubuntu backport",
+            "quote": "UBUNTU fixed it in 8.1.2-1ubuntu2.28, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:22.04:LTS php8.1 8.1.2-1ubuntu2.28 is fixed (fixed in 8.1.2-1ubuntu2.28) for CVE-2026-109619, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:7."
+      },
+      {
+        "package": "libapache2-mod-php8.1",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.1.2-1ubuntu2.28",
+        "version_source": "dpkg",
+        "sapi": "apache-mod_php",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status fixed, fixed_in 8.1.2-1ubuntu2.28"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "4.0",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "fixed in Ubuntu backport",
+            "quote": "UBUNTU fixed it in 8.1.2-1ubuntu2.28, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:22.04:LTS php8.1 8.1.2-1ubuntu2.28 is fixed (fixed in 8.1.2-1ubuntu2.28) for CVE-2026-109618, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:10."
+      },
+      {
+        "package": "libapache2-mod-php8.1",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.1.2-1ubuntu2.28",
+        "version_source": "dpkg",
+        "sapi": "apache-mod_php",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status fixed, fixed_in 8.1.2-1ubuntu2.28"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "4.0",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "fixed in Ubuntu backport",
+            "quote": "UBUNTU fixed it in 8.1.2-1ubuntu2.28, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:22.04:LTS php8.1 8.1.2-1ubuntu2.28 is fixed (fixed in 8.1.2-1ubuntu2.28) for CVE-2026-109619, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:10."
+      }
+    ],
+    "covered_packages": [
+      "php8.1",
+      "php8.1-common",
+      "php8.1-mysql"
+    ],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 10853,
+    "completion": 1421,
+    "total": 12274,
+    "requests": 3,
+    "maxRequest": 5155,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6395,
+        "prompt": 3242,
+        "completion": 117,
+        "total": 3359
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6830,
+        "prompt": 3672,
+        "completion": 88,
+        "total": 3760
+      },
+      {
+        "label": "agent 3",
+        "estimated": 7000,
+        "prompt": 3939,
+        "completion": 1216,
+        "total": 5155
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 9128,
+    "completion": 4490,
+    "total": 13618,
+    "requests": 9,
+    "maxRequest": 2211,
+    "perRequest": [
+      {
+        "label": "digest 1",
+        "estimated": 2776,
+        "prompt": 1119,
+        "completion": 818,
+        "total": 1937
+      },
+      {
+        "label": "digest 2",
+        "estimated": 2209,
+        "prompt": 788,
+        "completion": 713,
+        "total": 1501
+      },
+      {
+        "label": "digest 1",
+        "estimated": 2872,
+        "prompt": 1198,
+        "completion": 101,
+        "total": 1299
+      },
+      {
+        "label": "digest 2",
+        "estimated": 2864,
+        "prompt": 1156,
+        "completion": 606,
+        "total": 1762
+      },
+      {
+        "label": "digest 3",
+        "estimated": 2806,
+        "prompt": 1131,
+        "completion": 585,
+        "total": 1716
+      },
+      {
+        "label": "digest 4",
+        "estimated": 1882,
+        "prompt": 565,
+        "completion": 397,
+        "total": 962
+      },
+      {
+        "label": "digest 1",
+        "estimated": 2876,
+        "prompt": 1362,
+        "completion": 849,
+        "total": 2211
+      },
+      {
+        "label": "digest 2",
+        "estimated": 2874,
+        "prompt": 1315,
+        "completion": 356,
+        "total": 1671
+      },
+      {
+        "label": "digest 3",
+        "estimated": 1770,
+        "prompt": 494,
+        "completion": 65,
+        "total": 559
+      }
+    ]
+  }
+}

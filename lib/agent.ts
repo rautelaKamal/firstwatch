@@ -19,6 +19,7 @@
  */
 
 import { cachedCve } from "./cache";
+import { REASSURANCE, VERDICTS, VERDICT_LABELS, type Verdict } from "./verdicts";
 import { digestAdvisory, renderDigest, type AdvisoryDigest } from "./digest";
 import {
   addRequest,
@@ -47,6 +48,8 @@ import {
 
 export { DEFAULT_BASE_URL, DEFAULT_MODEL } from "./llm";
 export type { TokenUsage } from "./llm";
+export { REASSURANCE, VERDICTS, VERDICT_LABELS };
+export type { Verdict };
 export const MAX_ITERATIONS = 12;
 
 const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -57,29 +60,8 @@ const CVE_RE = /^CVE-\d{4}-\d{4,}$/i;
  * Verdicts
  * ------------------------------------------------------------------ */
 
-export const VERDICTS = ["AFFECTED", "AFFECTED_MITIGATED", "NOT_AFFECTED", "UNVERIFIED"] as const;
-export type Verdict = (typeof VERDICTS)[number];
 
-/**
- * How reassuring each verdict is. Invariants cap how reassuring a verdict may
- * be given the evidence, and only ever move a verdict down this scale.
- * AFFECTED sits at the bottom because raising an alarm needs no permission.
- */
-const REASSURANCE: Record<Verdict, number> = {
-  NOT_AFFECTED: 3,
-  AFFECTED_MITIGATED: 2,
-  UNVERIFIED: 1,
-  AFFECTED: 0,
-};
 
-/** How each verdict is shown to people. Both advisories are explicit that no
- *  configuration is a complete fix, so a mitigated package is still affected. */
-export const VERDICT_LABELS: Record<Verdict, string> = {
-  AFFECTED: "Affected",
-  AFFECTED_MITIGATED: "Affected, exposure reduced",
-  NOT_AFFECTED: "Not affected",
-  UNVERIFIED: "Unverified",
-};
 
 export type Citation = {
   claim: string;

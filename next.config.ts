@@ -1,8 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
+  // The triage route reads example cases and saved runs from disk at request time.
+  outputFileTracingIncludes: {
+    "/api/triage": ["./eval/cases/**/*", "./fixtures/**/*"],
+  },
   partialPrefetching: true,
   turbopack: {
     rules: {

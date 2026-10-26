@@ -1,0 +1,205 @@
+{
+  "case": "h-upstream-84-mitigated",
+  "report": {
+    "schema_version": 2,
+    "cve": "",
+    "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "assessed_at": "2026-10-26T00:00:00Z",
+    "overall": "AFFECTED_MITIGATED",
+    "summary": " CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.4.12",
+        "version_source": "php -v",
+        "sapi": "fpm",
+        "verdict": "AFFECTED_MITIGATED",
+        "decided_by": {
+          "method": "version_in_range",
+          "detail": "8.4.12 is inside \">= 8.4.0 and < 8.4.27\""
+        },
+        "exploitation_confidence": "presumed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "Affected range includes 8.4.x < 8.4.27",
+            "quote": ">= 8.4.0 and < 8.4.27",
+            "source": "NVD",
+            "verified": true
+          },
+          {
+            "claim": "Patch versions 8.4.27 fixes the issue",
+            "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+            "source": "GitHub advisory GHSA-w8hw-w9fx-j79w",
+            "verified": null
+          }
+        ],
+        "mitigations": [
+          {
+            "setting": "memory_limit",
+            "value": "-1",
+            "quote": "For installations that cannot update, setting and enforcing memory_limit=-1 administratively is the primary configuration mitigation.",
+            "source": "GHSA-w8hw-w9fx-j79w"
+          }
+        ],
+        "eol": {
+          "branch": "8.4",
+          "is_eol": false,
+          "upstream_release_exists": true,
+          "note": "php 8.4 is supported until 2028-12-31"
+        },
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "Update to php 8.4.27 or later",
+            "detail": "Patch contains full fix"
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "Affected per 8.4.12 inside \">= 8.4.0 and < 8.4.27\", read in NVD CVE-2026-109618; mitigated by memory_limit=-1, quoted from https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w and set at php.ini:2; installed version read from php-v.txt:1."
+      },
+      {
+        "package": "php",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.4.12",
+        "version_source": "php -v",
+        "sapi": "fpm",
+        "verdict": "AFFECTED_MITIGATED",
+        "decided_by": {
+          "method": "version_in_range",
+          "detail": "8.4.12 is inside \">= 8.4.0 and < 8.4.27\""
+        },
+        "exploitation_confidence": "confirmed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "Affected range includes 8.4.x < 8.4.27",
+            "quote": ">= 8.4.0 and < 8.4.27",
+            "source": "NVD",
+            "verified": true
+          },
+          {
+            "claim": "Patch versions 8.4.27 fixes the issue",
+            "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+            "source": "GitHub advisory GHSA-6wmf-4rv5-p3rp",
+            "verified": null
+          }
+        ],
+        "mitigations": [
+          {
+            "setting": "session.upload_progress.enabled",
+            "value": "0",
+            "quote": "For the session lifecycle case, set session.upload_progress.enabled=0 administratively and restart every worker.",
+            "source": "GHSA-6wmf-4rv5-p3rp"
+          }
+        ],
+        "eol": {
+          "branch": "8.4",
+          "is_eol": false,
+          "upstream_release_exists": true,
+          "note": "php 8.4 is supported until 2028-12-31"
+        },
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "Update to php 8.4.27 or later",
+            "detail": "Patch contains full fix"
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "Affected per 8.4.12 inside \">= 8.4.0 and < 8.4.27\", read in NVD CVE-2026-109619; mitigated by session.upload_progress.enabled=0, quoted from https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp and set at php.ini:3; installed version read from php-v.txt:1."
+      }
+    ],
+    "covered_packages": [],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 14540,
+    "completion": 2694,
+    "total": 17234,
+    "requests": 4,
+    "maxRequest": 5626,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6440,
+        "prompt": 3244,
+        "completion": 167,
+        "total": 3411
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6574,
+        "prompt": 3335,
+        "completion": 99,
+        "total": 3434
+      },
+      {
+        "label": "agent 3",
+        "estimated": 6733,
+        "prompt": 3444,
+        "completion": 1319,
+        "total": 4763
+      },
+      {
+        "label": "agent 4",
+        "estimated": 7000,
+        "prompt": 4517,
+        "completion": 1109,
+        "total": 5626
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "total": 0,
+    "requests": 0,
+    "maxRequest": 0,
+    "perRequest": []
+  }
+}

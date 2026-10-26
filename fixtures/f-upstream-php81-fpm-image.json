@@ -1,0 +1,191 @@
+{
+  "case": "f-upstream-php81-fpm-image",
+  "report": {
+    "schema_version": 2,
+    "cve": "CVE-2026-109618",
+    "target": "CVE-2026-109619",
+    "assessed_at": "2026-10-26T00:00:00Z",
+    "overall": "AFFECTED",
+    "summary": " CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.1.33",
+        "version_source": "php -v",
+        "sapi": "fpm",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "version_in_range",
+          "detail": "8.1.33 is inside \">= 7.3.0 and < 8.2.35\""
+        },
+        "exploitation_confidence": "presumed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "Affected version range includes 8.1.33",
+            "quote": "8.1.33 is inside \">= 7.3.0 and < 8.2.35\"",
+            "source": "version_in_range",
+            "verified": null
+          },
+          {
+            "claim": "FPM is susceptible, though no complete FPM exploit has been demonstrated",
+            "quote": "susceptible, though no complete FPM exploit has been demonstrated",
+            "source": "GHSA-w8hw-w9fx-j79w",
+            "verified": true
+          }
+        ],
+        "mitigations": [],
+        "eol": {
+          "branch": "8.1",
+          "is_eol": true,
+          "upstream_release_exists": true,
+          "note": "php 8.1 is end of life (since 2025-12-31)"
+        },
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "Upgrade to a supported PHP branch (e.g., 8.2, 8.3, 8.4, or 8.5)",
+            "detail": "No fix exists for 8.1; move to a supported branch"
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by 8.1.33 inside \">= 7.3.0 and < 8.2.35\"."
+      },
+      {
+        "package": "php",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.1.33",
+        "version_source": "php -v",
+        "sapi": "fpm",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "version_in_range",
+          "detail": "8.1.33 is inside \">= 5.4.0 and < 8.2.35\""
+        },
+        "exploitation_confidence": "confirmed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "Affected version range includes 8.1.33",
+            "quote": "8.1.33 is inside \">= 5.4.0 and < 8.2.35\"",
+            "source": "version_in_range",
+            "verified": null
+          },
+          {
+            "claim": "Session lifecycle RCE was validated against FPM",
+            "quote": "Session lifecycle RCE was validated against mod_php and FPM.",
+            "source": "GHSA-6wmf-4rv5-p3rp",
+            "verified": true
+          }
+        ],
+        "mitigations": [],
+        "eol": {
+          "branch": "8.1",
+          "is_eol": true,
+          "upstream_release_exists": true,
+          "note": "php 8.1 is end of life (since 2025-12-31)"
+        },
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "Upgrade to a supported PHP branch (e.g., 8.2, 8.3, 8.4, or 8.5)",
+            "detail": "No fix exists for 8.1; move to a supported branch"
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by 8.1.33 inside \">= 7.3.0 and < 8.2.35\"."
+      }
+    ],
+    "covered_packages": [],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 14738,
+    "completion": 2396,
+    "total": 17134,
+    "requests": 4,
+    "maxRequest": 5472,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6521,
+        "prompt": 3309,
+        "completion": 139,
+        "total": 3448
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6654,
+        "prompt": 3400,
+        "completion": 64,
+        "total": 3464
+      },
+      {
+        "label": "agent 3",
+        "estimated": 6837,
+        "prompt": 3548,
+        "completion": 1202,
+        "total": 4750
+      },
+      {
+        "label": "agent 4",
+        "estimated": 7000,
+        "prompt": 4481,
+        "completion": 991,
+        "total": 5472
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "total": 0,
+    "requests": 0,
+    "maxRequest": 0,
+    "perRequest": []
+  }
+}
