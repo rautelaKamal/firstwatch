@@ -157,5 +157,3 @@ eval/out/
 # fetched pages, NVD records and advisory digests
 .cache/
 
-# local editor and tool config
-.claude/
