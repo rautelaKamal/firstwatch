@@ -143,3 +143,35 @@ reduce exposure to specific attack paths but do not make an installation safe."
 | g-split-cli-patched-fpm-stale | `AFFECTED` | php8.4-fpm held (`apt-mark hold`, dpkg status `hi`) at `8.4.16-1~deb13u1`, affected, while upgrades patched php8.4-cli to `8.4.27-1~deb13u1`. Per package. |
 | h-upstream-84-mitigated | `AFFECTED_MITIGATED` | Upstream 8.4.12 in range; `session.upload_progress.enabled=0` and `memory_limit=-1` are stated mitigations, not fixes. |
 | i-dockerfile-only | `UNVERIFIED` | Floating `php:8.4-fpm` tag, no runtime evidence. Nothing can be concluded. |
+
+## A second, older disclosure: CVE-2024-11236 (case j)
+
+Case j exists to show nothing in the pipeline is specific to PHP2Shell.
+Verified 2026-10-27 against the live OSV API (`/v1/query` by source package
+and version), NVD and the GHSA page.
+
+- **CVE:** CVE-2024-11236, integer overflow in the firebird and dblib quoters
+  causing OOB writes. NVD CVSS 3.1 9.8.
+  https://nvd.nist.gov/vuln/detail/CVE-2024-11236
+- **GHSA:** GHSA-5hqh-c84r-qjcv, found from the NVD references.
+  https://github.com/php/php-src/security/advisories/GHSA-5hqh-c84r-qjcv
+  `parseGhsa` reads affected `< 8.1.31 | < 8.2.26 | < 8.3.14`, patched
+  8.1.31, 8.2.26, 8.3.14, and the CVE id, unchanged code.
+- **NVD ranges (php/php):** `>= 8.1.0 and < 8.1.31`, `>= 8.2.0 and < 8.2.26`,
+  `>= 8.3.0 and < 8.3.14`.
+- **Ubuntu notice:** USN-7153-1, https://ubuntu.com/security/notices/USN-7153-1
+  and https://ubuntu.com/security/CVE-2024-11236
+
+| OSV ecosystem | source package | fixed in | checked just below the fix |
+|---|---|---|---|
+| Ubuntu:24.04:LTS | php8.3 | `8.3.6-0ubuntu0.24.04.3` | `8.3.6-0ubuntu0.24.04.2` affected |
+| Ubuntu:22.04:LTS | php8.1 | `8.1.2-1ubuntu2.20` | `8.1.2-1ubuntu2.19` affected |
+| Debian:12 | php8.2 | `8.2.26-1~deb12u1` | `8.2.24-1~deb12u1` affected |
+
+| case | expected | why |
+|---|---|---|
+| j-ubuntu2404-backport-cve-2024-11236 | `NOT_AFFECTED` | OSV: php8.3 `8.3.6-0ubuntu0.24.04.3` fixed; every engine package is at that version. Upstream fix is 8.3.14, so a scanner reading 8.3.6 raises a false alarm. |
+
+Companion pages: none. `ChangeLog-8.php` is over 40,000 characters and is cut
+by `fetch_advisory` before `focusOn` can find the CVE, and
+`releases/8_3_14.php` does not name it, so the case uses `sources: []`.

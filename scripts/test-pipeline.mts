@@ -238,6 +238,7 @@ await test("renderDigest never shortens a quote, and can omit notes or shared fi
 const RANGES: Record<string, string[]> = {
   "CVE-2026-109618": [">= 7.3.0 and < 8.2.35", ">= 8.3.0 and < 8.3.36", ">= 8.4.0 and < 8.4.27", ">= 8.5.0 and < 8.5.12"],
   "CVE-2026-109619": [">= 5.4.0 and < 8.2.35", ">= 8.3.0 and < 8.3.36", ">= 8.4.0 and < 8.4.27", ">= 8.5.0 and < 8.5.12"],
+  "CVE-2024-11236": [">= 8.1.0 and < 8.1.31", ">= 8.2.0 and < 8.2.26", ">= 8.3.0 and < 8.3.14"],
 };
 
 for (const id of readdirSync("eval/cases").sort()) {
