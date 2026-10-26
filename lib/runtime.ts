@@ -16,7 +16,7 @@ const DPKG = /^(Desired=|\| Status=|\|\/ Err|\|\|\/ Name|\+\+\+-|(?:ii|hi|rc|iU|
 
 export type RuntimeParts = { "os-release": string; "php-v.txt": string; "dpkg.txt": string };
 
-export function splitRuntime(text: string): RuntimeParts & { packages: number } {
+export function splitRuntime(text: string): RuntimeParts & { packages: number; held: string[] } {
   const os: string[] = [];
   const php: string[] = [];
   const dpkg: string[] = [];
@@ -43,5 +43,7 @@ export function splitRuntime(text: string): RuntimeParts & { packages: number } 
     "php-v.txt": php.join("\n"),
     "dpkg.txt": dpkg.join("\n"),
     packages: dpkg.filter((l) => /^(ii|hi|iU|iF|iH)\s+\S*php/i.test(l)).length,
+    // dpkg marks packages pinned with apt-mark hold as "hi"; apt will not upgrade them until unheld.
+    held: dpkg.map((l) => l.match(/^h[iU]\s+(\S+?)(?::\S+)?\s/)?.[1]).filter((n): n is string => !!n),
   };
 }

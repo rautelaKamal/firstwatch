@@ -140,6 +140,6 @@ reduce exposure to specific attack paths but do not make an installation safe."
 | d-debian12-security-pocket | `NOT_AFFECTED` | OSV: php8.2 `8.2.35-1~deb12u1` fixed. |
 | e-debian12-no-security-pocket | `AFFECTED` | OSV: `8.2.32-1~deb12u1` affected, fix exists in bookworm-security. Hero case. |
 | f-upstream-php81-fpm-image | `AFFECTED` | Upstream image, no 8.1 release exists, EOL. Isolate or move branch. |
-| g-split-cli-patched-fpm-stale | `AFFECTED` | php8.4-cli `8.4.27-1~deb13u1` fixed but php8.4-fpm `8.4.16-1~deb13u1` affected. Per package. |
+| g-split-cli-patched-fpm-stale | `AFFECTED` | php8.4-fpm held (`apt-mark hold`, dpkg status `hi`) at `8.4.16-1~deb13u1`, affected, while upgrades patched php8.4-cli to `8.4.27-1~deb13u1`. Per package. |
 | h-upstream-84-mitigated | `AFFECTED_MITIGATED` | Upstream 8.4.12 in range; `session.upload_progress.enabled=0` and `memory_limit=-1` are stated mitigations, not fixes. |
 | i-dockerfile-only | `UNVERIFIED` | Floating `php:8.4-fpm` tag, no runtime evidence. Nothing can be concluded. |

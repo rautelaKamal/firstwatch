@@ -110,7 +110,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** The headline: how many engine packages are affected, why, and the exact next step. */
-function ResultBanner({ report, scanner, ecosystem }: { report: FirstWatchReport; scanner: Verdict | null; ecosystem: string | null }) {
+function ResultBanner({ report, scanner, ecosystem, held }: { report: FirstWatchReport; scanner: Verdict | null; ecosystem: string | null; held: string[] }) {
   const byPkg = new Map<string, PackageFinding[]>();
   for (const f of report.findings) byPkg.set(f.package, [...(byPkg.get(f.package) ?? []), f]);
   const pkgs = [...byPkg].map(([name, fs]) => ({ name, fs, verdict: worst(fs.map((f) => f.verdict)) }));
@@ -136,7 +136,8 @@ function ResultBanner({ report, scanner, ecosystem }: { report: FirstWatchReport
         : `${first?.package} ${first?.installed_version} is inside the affected range.`;
 
   const upgrade = [...new Set([...affected.map((p) => p.name).filter((n) => n !== "php"), ...(report.covered_packages ?? [])])];
-  const command = `sudo apt-get update && sudo apt-get install --only-upgrade ${upgrade.join(" ")}`;
+  const heldNow = upgrade.filter((p) => held.includes(p));
+  const command = `${heldNow.length ? `sudo apt-mark unhold ${heldNow.join(" ")} && ` : ""}sudo apt-get update && sudo apt-get install --only-upgrade ${upgrade.join(" ")}`;
 
   return (
     <div className={`rounded-xl border p-4 sm:p-5 ${PANEL[report.overall]}`}>
@@ -168,6 +169,11 @@ function ResultBanner({ report, scanner, ecosystem }: { report: FirstWatchReport
               <pre className="mt-1 whitespace-pre-wrap break-all rounded-lg bg-neutral-900 px-3 py-2 text-xs leading-5 text-neutral-100 dark:bg-black">
                 <code>{command}</code>
               </pre>
+              {heldNow.length > 0 && (
+                <p className="mt-2 text-sm text-neutral-700 dark:text-neutral-300">
+                  <code className="text-xs">{heldNow.join(" ")}</code> {heldNow.length > 1 ? "are" : "is"} on hold, which is why upgrades skipped {heldNow.length > 1 ? "them" : "it"}. Unhold, upgrade, then restart PHP-FPM.
+                </p>
+              )}
               {ecosystem?.startsWith("Debian") && codename && (
                 <p className="mt-2 text-sm text-neutral-700 dark:text-neutral-300">
                   Debian ships this fix in <code className="text-xs">{codename}-security</code>. If apt finds nothing newer, add{" "}
@@ -489,7 +495,7 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
 
         {report && (
           <>
-            <ResultBanner report={report} scanner={scanner} ecosystem={ecosystem} />
+            <ResultBanner report={report} scanner={scanner} ecosystem={ecosystem} held={split.held} />
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-500">
               {recorded ? (
                 <span>

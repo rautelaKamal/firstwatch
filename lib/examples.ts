@@ -21,9 +21,9 @@ export const DEFAULT_SPEC: CaseSpec = {
 
 export const EXAMPLES = [
   {
-    id: "e-debian12-no-security-pocket",
-    label: "Debian 12, no security pocket",
-    blurb: "Debian 12 never enabled bookworm-security, so php8.2 is stuck at 8.2.32-1~deb12u1 while Debian's fix sits in 8.2.35-1~deb12u1.",
+    id: "g-split-cli-patched-fpm-stale",
+    label: "Debian 13, FPM held back",
+    blurb: "php8.4-fpm was on apt hold, so the last upgrade patched the CLI that php -v reports (8.4.27) but left the FPM that serves traffic at 8.4.16.",
   },
   {
     id: "a-ubuntu2204-patched",
@@ -31,11 +31,13 @@ export const EXAMPLES = [
     blurb: "Upstream PHP 8.1 is end of life with no fixed release, but Ubuntu backported the fix into 8.1.2-1ubuntu2.28.",
   },
   {
-    id: "f-upstream-php81-fpm-image",
-    label: "Official php:8.1 image",
-    blurb: "The official php:8.1-fpm image compiles PHP itself, so no distro backport applies, and upstream 8.1 has no fixed release.",
+    id: "e-debian12-no-security-pocket",
+    label: "Debian 12, no security pocket",
+    blurb: "Debian 12 never enabled bookworm-security, so php8.2 is stuck at 8.2.32-1~deb12u1 while Debian's fix sits in 8.2.35-1~deb12u1.",
   },
 ] as const;
+
+// The php:8.1 image run stays recorded in fixtures/ and in the eval; it is no longer a button.
 
 export const DEFAULT_EXAMPLE = EXAMPLES[0].id;
 

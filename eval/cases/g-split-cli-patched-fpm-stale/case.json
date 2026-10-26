@@ -1,7 +1,7 @@
 {
   "id": "g-split-cli-patched-fpm-stale",
-  "description": "Hero case for false safety. php8.4-cli is patched at 8.4.27-1~deb13u1 and php -v agrees, so anything reading php -v concludes the host is fine. php8.4-fpm, which actually serves the traffic, is held at 8.4.16-1~deb13u1 and is affected. The verdict must be per package, and php -v must not be treated as evidence about php8.4-fpm.",
-  "stack": "Debian 13 trixie, nginx with php8.4-fpm",
+  "description": "Hero case for false safety. On Debian 13, php8.4-fpm was put on hold with apt-mark hold, a common way to avoid surprise FPM restarts, so the last apt upgrade patched php8.4-cli and php8.4-common to 8.4.27-1~deb13u1 and skipped FPM, which dpkg shows as held (hi) at 8.4.16-1~deb13u1. php -v reports the patched CLI, so anything reading php -v clears the host, while the FPM package that serves traffic is affected. The verdict must be per package, and php -v must not be treated as evidence about php8.4-fpm.",
+  "stack": "Debian 13 trixie, nginx with php8.4-fpm, php8.4-fpm held with apt-mark hold",
   "cve": "CVE-2026-109618",
   "cves": [
     "CVE-2026-109618",

@@ -686,6 +686,12 @@ for (const id of readdirSync("eval/cases").sort()) {
   });
 }
 
+await test("splitRuntime lists packages dpkg shows as held, as in case g", () => {
+  const dpkg = readFileSync("eval/cases/g-split-cli-patched-fpm-stale/dpkg.txt", "utf8");
+  assert.deepEqual(splitRuntime(dpkg).held, ["php8.4-fpm"]);
+  assert.deepEqual(splitRuntime(readFileSync("eval/cases/e-debian12-no-security-pocket/dpkg.txt", "utf8")).held, []);
+});
+
 /* --- report ------------------------------------------------------- */
 let failed = 0;
 for (const r of results) {
