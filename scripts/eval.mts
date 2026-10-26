@@ -67,7 +67,8 @@ function loadCases(): Loaded[] {
   return readdirSync(CASES_DIR)
     .filter((d) => statSync(join(CASES_DIR, d)).isDirectory())
     .sort()
-    .filter((d) => !only || d.includes(only))
+    // "--case a" means case a, not every id containing the letter a.
+    .filter((d) => !only || d === only || d.startsWith(`${only}-`))
     .map((d) => {
       const dir = join(CASES_DIR, d);
       const spec = JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as CaseSpec;
