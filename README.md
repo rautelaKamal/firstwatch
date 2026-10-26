@@ -2,30 +2,34 @@
 
 > DRAFT. Sections marked `TODO(Kamal)` are for the author to write.
 
-Version scanners read one version string. FirstWatch reads what is actually installed, checks every PHP package against the distribution's own fix records, and shows why each verdict stands.
+A version-string check compares one PHP version number to the advisory. FirstWatch reads what is actually installed, checks every PHP package against the distribution's own fix records, and shows why each verdict stands.
 
 **Live demo:** https://firstwatch-xi.vercel.app
 
 ## The problem
 
-A version scanner sees `PHP 8.1.2` or `PHP 8.4.27`, compares it to a CVE's affected range, and reports a verdict for the whole host. During PHP2Shell (CVE-2026-109618 and CVE-2026-109619, disclosed 21 October 2026, CVSS 4.0 9.2), that approach is wrong in both directions:
+A version-string check sees `PHP 8.1.2` or `PHP 8.4.27`, compares it to a CVE's affected range, and reports a verdict for the whole host. Banner-based scans and quick `php -v` checks work this way. During PHP2Shell (CVE-2026-109618 and CVE-2026-109619, disclosed 21 October 2026, CVSS 4.0 9.2), that approach is wrong in both directions:
 
-- **False alarm.** Ubuntu 22.04 ships `php8.1 8.1.2-1ubuntu2.28`, which carries a backported fix. Upstream 8.1 is end of life with no fixed release, so a scanner reads "8.1, in range" and raises a critical alarm on a patched host.
-- **False safety.** Debian splits PHP into packages. If `php8.4-fpm` is on `apt-mark hold`, an upgrade patches `php8.4-cli` but not FPM. `php -v` reports the patched CLI, so a scanner clears the host while the package serving traffic is still vulnerable.
+- **False alarm.** Ubuntu 22.04 ships `php8.1 8.1.2-1ubuntu2.28`, which carries a backported fix. Upstream 8.1 is end of life with no fixed release, so the check reads "8.1, in range" and raises a critical alarm on a patched host.
+- **False safety.** Debian splits PHP into packages. If `php8.4-fpm` is on `apt-mark hold`, an upgrade patches `php8.4-cli` but not FPM. `php -v` reports the patched CLI, so the check clears the host while the package serving traffic is still vulnerable.
 
 ### Why this matters
 
-TODO(Kamal): explain in your own words.
+The two errors do not cost the same. A false alarm costs an engineer some time: they look, find the backport, and move on. False safety means nobody looks, and the server stays exposed until someone gets in.
+
+That difference shapes the whole design. FirstWatch is allowed to be wrong in the cautious direction and is built never to be wrong in the reassuring one. Raising an alarm needs no evidence beyond a range match. Saying "Not affected" needs a specific, checkable record, and when that record is missing the answer falls back to "Unverified", not to "Not affected".
 
 ## Demo
 
-Each link opens that case on the site as a recorded live run; no model is called. `?example=g`, `?example=a` and `?example=e` work anywhere.
+Each link opens that case on the site as a recorded live run; no model is called.
 
-| Case | Version scanner | FirstWatch | What it shows |
+| Case | Version-string check | FirstWatch | What it shows |
 |---|---|---|---|
-| [Debian 13, FPM held back](https://firstwatch-xi.vercel.app/?example=g) (g) | Not affected | **Affected** | `php8.4-fpm` held at `8.4.16-1~deb13u1` while the CLI that `php -v` reports was patched to `8.4.27-1~deb13u1`. The scanner clears the host; the FPM package is still vulnerable. |
-| [Ubuntu 22.04, patched](https://firstwatch-xi.vercel.app/?example=a) (a) | Affected | **Not affected** | Upstream 8.1 has no fixed release, but Ubuntu backported the fix into `8.1.2-1ubuntu2.28`. The scanner raises a false alarm. |
+| [Debian 13, FPM held back](https://firstwatch-xi.vercel.app/?example=g) (g) | Not affected | **Affected** | `php8.4-fpm` held at `8.4.16-1~deb13u1` while the CLI that `php -v` reports was patched to `8.4.27-1~deb13u1`. The check clears the host; the FPM package is still vulnerable. |
+| [Ubuntu 22.04, patched](https://firstwatch-xi.vercel.app/?example=a) (a) | Affected | **Not affected** | Upstream 8.1 has no fixed release, but Ubuntu backported the fix into `8.1.2-1ubuntu2.28`. The check raises a false alarm. |
 | [Debian 12, no security pocket](https://firstwatch-xi.vercel.app/?example=e) (e) | Affected | **Affected** | Both agree, but FirstWatch names the packages, Debian's fixed version (`8.2.35-1~deb12u1`), and the exact `apt-get --only-upgrade` command, plus the missing `bookworm-security` line. |
+
+To check a real server, open [Check your own server](https://firstwatch-xi.vercel.app/?check): run one read-only command, paste its output, and press Check. The version-string check and parsing appear at once; the AI check follows and takes 2 to 4 minutes. It covers PHP2Shell on Ubuntu 22.04/24.04 and Debian 12/13. Anything else gets a "not supported yet" message and no verdict.
 
 ## How it works
 
@@ -36,7 +40,7 @@ Each link opens that case on the site as a recorded live run; no model is called
 5. **Let the model assemble the report.** It calls the tools and proposes one verdict per engine package per CVE, with citations.
 6. **Enforce the invariants in code.** Eleven checks run after the model answers. Any verdict the evidence does not support is downgraded, and the reason is recorded.
 7. **Annotate.** Citations are checked against the raw text of the source they name, settings the advisory warns against get a cited warning, and the patched versions of both CVEs are compared.
-8. **Compare with a version scanner.** A deterministic baseline reads the single version string a scanner would, and is shown next to every verdict.
+8. **Compare with a version-string check.** A deterministic baseline reads the single version number such a check would, and is shown next to every verdict.
 
 ```
  stack files ──► parse_stack (code) ──► packages, distro, SAPI, ini
@@ -54,12 +58,14 @@ Each link opens that case on the site as a recorded live run; no model is called
                         11 invariants + annotate (code)
                                          │
                                          ▼
-                    final report  ◄──►  scanner baseline (code)
+                    final report  ◄──►  version-string check (code)
 ```
 
 ### Why per package and per CVE
 
-TODO(Kamal): explain in your own words.
+`php -v` describes only the CLI binary. The FPM process that serves web traffic is a separate package and can be on a different version. In case g, `php8.4-fpm` is on `apt-mark hold`, so an upgrade moved the CLI to `8.4.27-1~deb13u1` and left FPM at `8.4.16-1~deb13u1`. One verdict per host, read from `php -v`, says "patched". One verdict per package says FPM is still affected.
+
+The same goes for CVEs. PHP2Shell is two CVEs, and a mitigation can reduce one without touching the other: `memory_limit=-1` reduces CVE-2026-109618 only. A single verdict for "PHP2Shell" would have to either ignore that mitigation or wrongly apply it to both. So every engine package gets a verdict for every CVE, and the host's overall verdict is the worst of them.
 
 ## The safety design: the model proposes, code decides
 
@@ -85,19 +91,45 @@ The **what-if toggles** on the site use the same engine. Setting `memory_limit =
 
 ### Why the model proposes and code decides
 
-TODO(Kamal): explain in your own words.
+A language model reads text as tokens. It does not compare `8.1.2-1ubuntu2.28` with `8.1.2-1ubuntu2.21` the way dpkg does, and it can state a fix or a range that no source contains. So the model never does version math and never has the final word. It reads, calls tools, and proposes. Code compares versions, checks each claim against the ledger of tool results, and decides the verdict.
+
+The rules only move one way. They can turn "Not affected" into "Unverified" or "Affected", never the reverse. "Not affected" survives only if the ledger holds an OSV row saying this exact version is fixed in this stack's ecosystem, or a range check computed by code against a range that was actually fetched.
+
+The checks themselves need the same care. An early version of the range rule cleared a package if `some` range result said "outside". Version 8.4.16 checked only against the 8.5 range (`>= 8.5.0, < 8.5.12`) is outside it, so a vulnerable 8.4 package would have been cleared. The rule now requires `every` range result to be outside, and at least one of those ranges to cover the version's own branch (8.4.0 for 8.4.16). A test pins that exact case.
 
 ### Why verify the digest instead of trusting it
 
-TODO(Kamal): explain in your own words.
+The first digest asked the model to extract everything from the advisory, including the version ranges. It lost 3 of the 4 ranges. Ranges are the one thing a wrong answer cannot afford to get wrong, so the design changed:
+
+- Structured fields (affected versions, patched versions, CVE id) are parsed from the GHSA page by code.
+- The model only reads the prose: which SAPIs are exposed, mitigations, settings to avoid, backports.
+- Every item it returns must carry a quote, and code keeps the item only if that quote appears verbatim in the fetched page.
+
+Scored against a hand-made answer key, the digest finds 37 of 39 facts. The two misses are the `memory.max` mitigation in GHSA-w8hw and the note "There is no complete generic configuration mitigation" in GHSA-6wmf.
+
+## How this compares to package-aware scanners
+
+The version-string check shown next to each verdict stands for banner-based scans and quick `php -v` checks. It is not a stand-in for package-aware scanners.
+
+Tools such as Trivy, Grype, debsecan and Ubuntu's `pro fix` already read installed packages and distribution fix data. They would likely flag the held-FPM case (g) and clear the backport case (a) correctly. FirstWatch does not claim to beat them at that.
+
+What FirstWatch adds is reading the advisory itself:
+
+- **The cause, with the exact fix.** A held package gets the unhold step; a missing security repository gets the apt line to add; both get the `apt-get --only-upgrade` command for the packages involved.
+- **Mitigations per CVE.** A stated mitigation that the stack actually sets lowers a verdict to "Affected, exposure reduced". It never clears a package.
+- **Anti-mitigations.** Settings the advisory warns against, such as `RLIMIT_AS` and `RLIMIT_DATA` caps, get a cited warning.
+- **Every claim cited.** Each claim names its source, and quotes are checked against the fetched page.
+- **Safety rules in code.** The invariants above decide what survives.
+
+It is meant to work alongside those tools, not replace them: a package-aware scanner across the fleet, and FirstWatch when one disclosure needs a careful, explained answer for a host.
 
 ## Results
 
-### Eval: FirstWatch vs a version scanner
+### Eval: FirstWatch vs a version-string check
 
-Nine cases, each with ground truth verified against the live OSV API (`eval/ground-truth.md`, re-checked by `npm run verify-truth`).
+Ten cases, each with ground truth verified against the live OSV API (`eval/ground-truth.md`). `npm run verify-truth` re-checks the PHP2Shell rows.
 
-| Case | Expected | FirstWatch (live run) | Version scanner |
+| Case | Expected | FirstWatch (live run) | Version-string check |
 |---|---|---|---|
 | a. Ubuntu 22.04, patched | Not affected | Not affected | Affected (false alarm) |
 | b. Ubuntu 22.04, stale package | Affected | Affected | Affected |
@@ -108,11 +140,12 @@ Nine cases, each with ground truth verified against the live OSV API (`eval/grou
 | g. Debian 13, FPM held back | Affected | Affected | **Not affected (unsafe)** |
 | h. 8.4 with mitigations | Affected, exposure reduced | Affected, exposure reduced | Affected |
 | i. Dockerfile only | Unverified | not yet run live | Affected (no evidence) |
+| j. Ubuntu 24.04, CVE-2024-11236 backport | Not affected | not yet run live | Affected (false alarm) |
 
 - **FirstWatch:** 6 of 6 cases run live are correct, with 0 unsafe verdicts and 0 downgrades.
-- **Scanner:** 4 of 9 exact, 1 acceptable (h), 2 false alarms (a, c), 1 unsafe (g), and 1 verdict with no evidence behind it (i).
+- **Version-string check:** 4 of 10 exact, 1 acceptable (h), 3 false alarms (a, c, j), 1 unsafe (g), and 1 verdict with no evidence behind it (i).
 
-TODO(Kamal): run c, d and i live and fill in the column, or keep them marked as not run.
+**Case j is a second CVE.** CVE-2024-11236 (GHSA-5hqh-c84r-qjcv, an integer overflow in the firebird and dblib quoters) is fixed upstream in 8.3.14. Ubuntu 24.04 backported the fix into `8.3.6-0ubuntu0.24.04.3` (USN-7153-1). The case runs through the same parser, OSV check, GHSA field parser and invariants with no code changes. Without a model call, a "Not affected" report on the fixed version passes every invariant, and the same report one package release older (`.2`) is forced to Affected by I1.
 
 ### Digest recall: 37 of 39
 
@@ -141,13 +174,14 @@ Building the three advisory digests cost 13,618 tokens once; they are cached and
 
 ## Limits and honest caveats
 
-- **One incident.** Everything here is built and tested around PHP2Shell on Debian and Ubuntu. The approach is general; the coverage is not.
+- **Built around one incident.** The site checks PHP2Shell only. Case j shows the pipeline accepts a second CVE without code changes, but it has not been run live, and the site's input path, banner wording and what-if toggles are still written for PHP2Shell.
+- **Extension-level CVEs can over-alarm.** CVE-2024-11236 lives in the firebird and dblib extensions. FirstWatch judges the main PHP packages, so a host without those extensions installed may get a false alarm. It cannot produce false safety this way.
+- **Four distro releases.** Ubuntu 22.04 and 24.04, Debian 12 and 13. Other distributions, and PHP not installed from distro packages, get "not supported yet" and no verdict on the own-server path.
 - **Free-tier pacing.** Requests are paced to stay under 8,000 tokens per minute, so a live run takes 2 to 4 minutes, most of it waiting.
-- **Replays vs live.** The site opens on recorded live runs, and replaying one makes no model call. Live runs are rate-limited on the deployed site. The evidence ledgers for the six earlier recordings were rebuilt afterwards by re-running the same code tools (OSV, range checks), because those runs saved only the report.
-- **Not every case is run live.** c, d and i have ground truth and a scanner baseline, but no live FirstWatch run under the current design.
+- **Replays vs live.** The site opens on recorded live runs, and replaying one makes no model call. Live runs are rate-limited on the deployed site.
+- **Rebuilt evidence for early recordings.** The six earlier recordings saved only the report. Their evidence ledgers were rebuilt afterwards by re-running the same code tools (OSV, range checks); newer runs save their own.
+- **Not every case is run live.** c, d, i and j have ground truth and a version-string baseline, but no live FirstWatch run under the current design.
 - **The digest misses things.** Recall is 37 of 39, and a model reading prose can miss a mitigation.
-
-TODO(Kamal): add anything you would want a judge to know before they trust a verdict.
 
 ## Running locally
 
@@ -159,9 +193,9 @@ npm run dev                  # http://localhost:3000, replays need no key
 
 ```bash
 npm test                     # invariant, pipeline and digest-recall tests, no model or network
-npm run eval -- --dry        # fixtures and scanner baseline, no model calls
+npm run eval -- --dry        # fixtures and the version-string baseline, no model calls
 npm run eval -- --case g     # one live case (uses tokens)
-npm run verify-truth         # re-check the ground truth against live OSV
+npm run verify-truth         # re-check the PHP2Shell ground truth against live OSV
 ```
 
 Environment variables are documented in `.env.example`. Live runs on a deployment also need `LIVE_ENABLED=true`.
