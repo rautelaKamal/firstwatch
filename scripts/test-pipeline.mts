@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 
 import { chunkText, digestAdvisory, flattenDigest, focusOn, parseGhsa, renderDigest, verifyItems, type AdvisoryDigest } from "../lib/digest";
 import { allowLiveRun, resetLimits } from "../lib/limits";
+import { splitRuntime } from "../lib/runtime";
 import { scoreDigest } from "../lib/recall";
 import { callModel, chat, estimateRequest, llmConfig, planWait, resetBudget, type ChatMessage } from "../lib/llm";
 import { parse_stack } from "../lib/tools";
@@ -664,6 +665,26 @@ await test("redis limiter: global counts, and it fails closed when the store is 
     globalThis.fetch = realFetch;
   });
 });
+
+/* ================================================================== *
+ * One paste box: the combined command's output splits back into three files
+ * ================================================================== */
+
+for (const id of readdirSync("eval/cases").sort()) {
+  await test(`splitRuntime: ${id} parses the same from one pasted block`, () => {
+    const dir = join("eval/cases", id);
+    const read = (f: string) => { try { return readFileSync(join(dir, f), "utf8"); } catch { return ""; } };
+    const parts = ["os-release", "php-v.txt", "dpkg.txt"].map(read).filter(Boolean);
+    if (!parts.length) return; // a Dockerfile-only case has no runtime evidence to paste
+    const pasted = ["$ cat /etc/os-release", read("os-release"), "$ php -v", read("php-v.txt"), "$ dpkg -l 'php*' 'libapache2-mod-php*'", read("dpkg.txt")].join("\n");
+    const split = splitRuntime(pasted);
+    const viaSplit = parse_stack({ "os-release": split["os-release"], "php-v.txt": split["php-v.txt"], "dpkg.txt": split["dpkg.txt"] });
+    const original = parse_stack(Object.fromEntries(["os-release", "php-v.txt", "dpkg.txt"].map((f) => [f, read(f)]).filter(([, t]) => t)));
+    assert.ok(viaSplit.ok && original.ok);
+    assert.deepEqual(viaSplit.ecosystems, original.ecosystems);
+    assert.deepEqual(viaSplit.packages.map((p) => `${p.name}=${p.version}:${p.kind}`).sort(), original.packages.map((p) => `${p.name}=${p.version}:${p.kind}`).sort());
+  });
+}
 
 /* --- report ------------------------------------------------------- */
 let failed = 0;

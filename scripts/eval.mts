@@ -147,10 +147,13 @@ type Result = { verdict: Verdict | "none"; report: FirstWatchReport | null; tool
 
 async function runFirstWatch(k: Loaded): Promise<Result> {
   const started = Date.now();
+  let modelUsed = "";
   const out: Result = { verdict: "none", report: null, toolCalls: 0, ms: 0, note: "", usage: emptyUsage(), digest: emptyUsage(), downgrades: 0 };
   for await (const e of runAgent({ stack: k.stack, files: k.files, target: k.target, cve: k.cve, cves: k.cves, sources: k.sources, model, maxIterations: max ? Number(max) : undefined })) {
     if (e.type === "digest") console.log(`    ${dim("digest")} ${e.url} ${e.error ? red(e.error.slice(0, 160)) : e.cached ? dim(`cached, ${e.items} items`) : `${e.items} items kept, ${e.dropped} dropped, ${e.chunks} part(s), ${n(e.tokens)} tokens`}`);
     if (e.type === "digest_request" && verbose) console.log(`    ${dim("digest request")} part ${e.index} of ${e.of}, ~${n(e.estimated)} tokens estimated`);
+    if (e.type === "start") modelUsed = e.model;
+    if (e.type === "model_switch") modelUsed = e.to;
     if (e.type === "nvd") console.log(`    ${dim("nvd   ")} ${e.id}: ${e.ranges} php ranges${e.note ? ` (${e.note})` : ""}`);
     if (e.type === "model_switch") console.log(`    ${yellow("model ")} ${e.from} -> ${e.to}: ${e.reason}`);
     if (e.type === "waiting") console.log(`    ${yellow("wait  ")} ${ms(e.ms)}: ${e.reason}`);
@@ -175,7 +178,7 @@ async function runFirstWatch(k: Loaded): Promise<Result> {
       out.usage = e.usage;
       out.digest = e.digestUsage;
       if (!e.report) out.note = e.reportError ?? "no valid report";
-      writeFileSync(join(OUT_DIR, `${k.id}.firstwatch.json`), JSON.stringify({ case: k.id, report: e.report, raw: e.report ? undefined : e.text, usage: e.usage, digestUsage: e.digestUsage }, null, 2));
+      writeFileSync(join(OUT_DIR, `${k.id}.firstwatch.json`), JSON.stringify({ case: k.id, model: modelUsed, report: e.report, raw: e.report ? undefined : e.text, usage: e.usage, digestUsage: e.digestUsage }, null, 2));
     }
   }
   out.ms = Date.now() - started;

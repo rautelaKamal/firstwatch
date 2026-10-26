@@ -33,7 +33,7 @@ const MAX_FILE_CHARS = 200_000;
 export type StreamEvent =
   | AgentEvent
   | { type: "baseline"; report: FirstWatchReport; version: string | null }
-  | { type: "replay"; note: string }
+  | { type: "replay"; note: string; recorded: { at: string | null; model: string; tokens: number | null } }
   | { type: "live_unavailable"; reason: string; message: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -49,7 +49,12 @@ async function* replay(exampleId: string | undefined, files: Record<string, stri
     return;
   }
   const report = saved.report as FirstWatchReport;
-  yield { type: "replay", note: "Replaying a saved run of this example. No model calls are made." };
+  yield {
+    type: "replay",
+    note: "Replaying a recorded live run of this example. No model calls are made.",
+    // Every recording so far used gpt-oss-120b; newer recordings store their model.
+    recorded: { at: report.assessed_at ?? null, model: saved.model ?? "openai/gpt-oss-120b", tokens: saved.usage?.total ?? null },
+  };
 
   const parsed = parse_stack(files);
   if (parsed.ok) {

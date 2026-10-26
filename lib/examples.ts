@@ -5,18 +5,8 @@
  * Server only: reads from disk.
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-
-/** The upload slots on the page, in order. Each maps to a file name parse_stack understands. */
-export const FIELDS = [
-  { file: "Dockerfile", label: "Dockerfile" },
-  { file: "php.ini", label: "php.ini" },
-  { file: "nginx.conf", label: "nginx.conf or Apache vhost" },
-  { file: "os-release", label: "cat /etc/os-release", runtime: true },
-  { file: "php-v.txt", label: "php -v", runtime: true },
-  { file: "dpkg.txt", label: "dpkg -l 'php*' 'libapache2-mod-php*'", runtime: true },
-] as const;
 
 export type CaseSpec = { cve: string; cves: string[]; target: string; sources: string[]; stack: string };
 
@@ -30,33 +20,58 @@ export const DEFAULT_SPEC: CaseSpec = {
 };
 
 export const EXAMPLES = [
-  { id: "a-ubuntu2204-patched", label: "Ubuntu 22.04, patched" },
-  { id: "e-debian12-no-security-pocket", label: "Debian 12, no security pocket" },
-  { id: "f-upstream-php81-fpm-image", label: "Official php:8.1 image" },
+  {
+    id: "e-debian12-no-security-pocket",
+    label: "Debian 12, no security pocket",
+    blurb: "Debian 12 never enabled bookworm-security, so php8.2 is stuck at 8.2.32-1~deb12u1 while Debian's fix sits in 8.2.35-1~deb12u1.",
+  },
+  {
+    id: "a-ubuntu2204-patched",
+    label: "Ubuntu 22.04, patched",
+    blurb: "Upstream PHP 8.1 is end of life with no fixed release, but Ubuntu backported the fix into 8.1.2-1ubuntu2.28.",
+  },
+  {
+    id: "f-upstream-php81-fpm-image",
+    label: "Official php:8.1 image",
+    blurb: "The official php:8.1-fpm image compiles PHP itself, so no distro backport applies, and upstream 8.1 has no fixed release.",
+  },
 ] as const;
 
-export type Example = { id: string; label: string; description: string; files: Record<string, string> };
+export const DEFAULT_EXAMPLE = EXAMPLES[0].id;
 
-const caseDir = (id: string) => join(process.cwd(), "eval", "cases", id);
-
-/** Which case file goes in which upload slot. */
-const SLOT: Record<string, string> = {
-  Dockerfile: "Dockerfile",
-  "php.ini": "php.ini",
-  "nginx.conf": "nginx.conf",
-  "vhost.conf": "nginx.conf",
-  "os-release": "os-release",
-  "php-v.txt": "php-v.txt",
-  "dpkg.txt": "dpkg.txt",
+export type Example = {
+  id: string;
+  label: string;
+  blurb: string;
+  /** The verdict this example is expected to reach, from its case file. */
+  expected: string;
+  /** os-release, php -v and dpkg output, as one pasted block. */
+  runtime: string;
+  /** Optional config files, keyed by name. */
+  config: Record<string, string>;
 };
 
+const caseDir = (id: string) => join(process.cwd(), "eval", "cases", id);
+const read = (dir: string, f: string) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), "utf8").trimEnd() : "");
+
 export function loadExamples(): Example[] {
-  return EXAMPLES.map(({ id, label }) => {
+  return EXAMPLES.map(({ id, label, blurb }) => {
     const dir = caseDir(id);
-    const spec = JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as { description: string };
-    const files: Record<string, string> = {};
-    for (const f of readdirSync(dir)) if (SLOT[f]) files[SLOT[f]] = readFileSync(join(dir, f), "utf8");
-    return { id, label, description: spec.description, files };
+    const spec = JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as { expect: { verdict: string } };
+    const runtime = [
+      ["cat /etc/os-release", read(dir, "os-release")],
+      ["php -v", read(dir, "php-v.txt")],
+      ["dpkg -l 'php*' 'libapache2-mod-php*'", read(dir, "dpkg.txt")],
+    ]
+      .filter(([, t]) => t)
+      .map(([cmd, t]) => `$ ${cmd}\n${t}`)
+      .join("\n");
+    const config: Record<string, string> = {};
+    for (const [file, slot] of [["Dockerfile", "Dockerfile"], ["php.ini", "php.ini"], ["nginx.conf", "nginx.conf"], ["vhost.conf", "nginx.conf"]]) {
+      const t = read(dir, file);
+      if (t) config[slot] = t;
+    }
+    return { id, label, blurb, expected: spec.expect.verdict, runtime, config };
   });
 }
 
@@ -67,10 +82,10 @@ export function caseSpec(id: string | undefined): CaseSpec {
 }
 
 /** A saved report for this example, if a run has been recorded. */
-export function savedRun(id: string | undefined): { report: unknown; usage?: unknown; digestUsage?: unknown } | null {
+export function savedRun(id: string | undefined): { report: unknown; usage?: { total?: number }; digestUsage?: unknown; model?: string } | null {
   if (!id || !EXAMPLES.some((e) => e.id === id)) return null;
   const path = join(process.cwd(), "fixtures", `${id}.json`);
   if (!existsSync(path)) return null;
-  const saved = JSON.parse(readFileSync(path, "utf8")) as { report: unknown; usage?: unknown; digestUsage?: unknown };
+  const saved = JSON.parse(readFileSync(path, "utf8")) as { report: unknown; usage?: { total?: number }; digestUsage?: unknown; model?: string };
   return saved.report ? saved : null;
 }

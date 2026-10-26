@@ -1,0 +1,243 @@
+{
+  "case": "e-debian12-no-security-pocket",
+  "report": {
+    "schema_version": 2,
+    "cve": "",
+    "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "assessed_at": "2026-10-26T12:41:04.064Z",
+    "overall": "AFFECTED",
+    "summary": "Also installed: php8.2-common (share the source package; covered by the SAPI verdicts). CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php8.2-cli",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.2.32-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status=affected; fixed_in=8.2.35-1~deb12u1"
+        },
+        "exploitation_confidence": "presumed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "package is affected",
+            "quote": "status\":\"affected\",\"fixed_in\":\"8.2.35-1~deb12u1\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.2-cli to 8.2.35-1~deb12u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by OSV row Debian:12 php8.2 8.2.32-1~deb12u1 affected."
+      },
+      {
+        "package": "php8.2-cli",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.2.32-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status=affected; fixed_in=8.2.35-1~deb12u1"
+        },
+        "exploitation_confidence": "presumed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "package is affected",
+            "quote": "status\":\"affected\",\"fixed_in\":\"8.2.35-1~deb12u1\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.2-cli to 8.2.35-1~deb12u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by OSV row Debian:12 php8.2 8.2.32-1~deb12u1 affected."
+      },
+      {
+        "package": "php8.2-fpm",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.2.32-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status=affected; fixed_in=8.2.35-1~deb12u1"
+        },
+        "exploitation_confidence": "presumed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "package is affected",
+            "quote": "status\":\"affected\",\"fixed_in\":\"8.2.35-1~deb12u1\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.2-fpm to 8.2.35-1~deb12u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by OSV row Debian:12 php8.2 8.2.32-1~deb12u1 affected."
+      },
+      {
+        "package": "php8.2-fpm",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.2.32-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "status=affected; fixed_in=8.2.35-1~deb12u1"
+        },
+        "exploitation_confidence": "confirmed",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [
+          {
+            "claim": "package is affected",
+            "quote": "status\":\"affected\",\"fixed_in\":\"8.2.35-1~deb12u1\"",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [
+          {
+            "priority": 1,
+            "type": "patch",
+            "action": "upgrade php8.2-fpm to 8.2.35-1~deb12u1",
+            "detail": ""
+          }
+        ],
+        "unverified": [],
+        "allow_reason": "An alarm needs no permission. Supported by OSV row Debian:12 php8.2 8.2.32-1~deb12u1 affected."
+      }
+    ],
+    "corrections": [
+      "overall was \"\"; recomputed from the findings as AFFECTED."
+    ],
+    "covered_packages": [
+      "php8.2-common"
+    ],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 10683,
+    "completion": 1650,
+    "total": 12333,
+    "requests": 3,
+    "maxRequest": 5325,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6383,
+        "prompt": 3213,
+        "completion": 112,
+        "total": 3325
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6759,
+        "prompt": 3603,
+        "completion": 80,
+        "total": 3683
+      },
+      {
+        "label": "agent 3",
+        "estimated": 7000,
+        "prompt": 3867,
+        "completion": 1458,
+        "total": 5325
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "total": 0,
+    "requests": 0,
+    "maxRequest": 0,
+    "perRequest": []
+  }
+}

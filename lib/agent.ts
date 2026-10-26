@@ -19,7 +19,7 @@
  */
 
 import { cachedCve } from "./cache";
-import { REASSURANCE, VERDICTS, VERDICT_LABELS, type Verdict } from "./verdicts";
+import { INVARIANTS, REASSURANCE, VERDICTS, VERDICT_LABELS, type Verdict } from "./verdicts";
 import { digestAdvisory, renderDigest, type AdvisoryDigest } from "./digest";
 import {
   addRequest,
@@ -48,7 +48,7 @@ import {
 
 export { DEFAULT_BASE_URL, DEFAULT_MODEL } from "./llm";
 export type { TokenUsage } from "./llm";
-export { REASSURANCE, VERDICTS, VERDICT_LABELS };
+export { INVARIANTS, REASSURANCE, VERDICTS, VERDICT_LABELS };
 export type { Verdict };
 export const MAX_ITERATIONS = 12;
 
@@ -93,6 +93,8 @@ export type PackageFinding = {
   enforcement?: { invariant: string; from: Verdict; to: Verdict; why: string }[];
   /** Written by enforceInvariants when the verdict survived: the evidence that permitted it. */
   allow_reason?: string;
+  /** Written by code: the version the distribution fixed this CVE in, from OSV. */
+  fixed_in?: string;
 };
 
 export type FirstWatchReport = {
@@ -348,19 +350,6 @@ export const emptyLedger = (facts: Fact[] = []): Ledger => ({ distro: [], ranges
  * Invariants, enforced in code after the model answers
  * ------------------------------------------------------------------ */
 
-export const INVARIANTS = {
-  I1: "NOT_AFFECTED requires an OSV-confirmed fix for this exact installed version in this stack's own ecosystem, or a code-computed out-of-range result.",
-  I2: "AFFECTED_MITIGATED requires sourced evidence that the package is affected, plus a mitigation.",
-  I3: "A verdict more reassuring than UNVERIFIED requires runtime evidence of this package's own installed version.",
-  I4: "An inexact version cannot decide a range that splits inside its own branch.",
-  I5: "A package's verdict must rest on that package's own installed version, never on another package's.",
-  I6: "Every engine-carrying PHP package in the stack needs a verdict for every CVE under assessment.",
-  I7: "A range may only clear a package if its boundary versions appear in something actually fetched this run.",
-  I8: "A range clears a version only if no range places it inside, and the clearing range covers the version's own branch.",
-  I9: "A finding must name a package that is in the parsed inventory.",
-  I10: "A mitigation counts only if its quote appears in a fetched advisory, names the setting, and the stack actually sets it.",
-  I11: "A finding must be about one of the CVEs under assessment, and evidence for one CVE never clears another.",
-} as const;
 
 /** Version-like tokens in a range, without swallowing trailing punctuation. */
 const BOUNDARY_VERSIONS = /\d+(?:\.\d+)+(?:[-~+][\w.~+]+)*/g;
@@ -660,7 +649,8 @@ export function enforceInvariants(
       );
     }
 
-    if (enforcement.length) return { ...finding, verdict, enforcement };
+    const fixed_in = rows.find((d) => d.fixedVersion && sameEcosystem(d.ecosystem))?.fixedVersion ?? undefined;
+    if (enforcement.length) return { ...finding, verdict, enforcement, ...(fixed_in ? { fixed_in } : {}) };
 
     // E: a verdict that survived records what permitted it.
     const installed = ownFact ? `installed version read from ${ownFact.file}:${ownFact.line}` : "";
@@ -689,7 +679,7 @@ export function enforceInvariants(
     } else {
       allow_reason = "UNVERIFIED asserts nothing, so it needs no evidence.";
     }
-    return { ...finding, verdict, allow_reason };
+    return { ...finding, verdict, allow_reason, ...(fixed_in ? { fixed_in } : {}) };
   });
 
 
