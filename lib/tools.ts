@@ -577,6 +577,11 @@ export function version_in_range(version: string, range: string): RangeCheck | F
   const v = String(version ?? "").trim().replace(/^v/i, "");
   const r = String(range ?? "").trim();
   if (!isVersionLike(v)) return fail(`"${version}" is not a version number.`);
+  if (DISTRO_VERSION.test(v)) {
+    return fail(
+      `"${version}" is a distro package version. Upstream ranges do not apply to it, because distributions backport fixes without changing the upstream number. Use check_distro_fix.`,
+    );
+  }
   if (!r) return fail('version_in_range needs a range, for example ">= 8.1.0, < 8.1.29".');
 
   const verdict = (clauses: { clause: string; satisfied: boolean }[]): RangeCheck => {

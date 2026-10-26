@@ -84,6 +84,8 @@ export type PackageFinding = {
   unverified: { missing: string; why_it_matters: string; how_to_get_it: string }[];
   /** Written by enforceInvariants, never by the model. */
   enforcement?: { invariant: string; from: Verdict; to: Verdict; why: string }[];
+  /** Written by enforceInvariants when the verdict survived: the evidence that permitted it. */
+  allow_reason?: string;
 };
 
 export type FirstWatchReport = {
@@ -94,6 +96,8 @@ export type FirstWatchReport = {
   overall: Verdict;
   summary: string;
   findings: PackageFinding[];
+  /** Written by code: installed packages that share a source package with an assessed engine package. */
+  covered_packages?: string[];
   enforcement_log?: { package: string; invariant: string; from: Verdict; to: Verdict; why: string }[];
 };
 
@@ -110,7 +114,7 @@ export const REPORT_JSON_SCHEMA = {
     summary: { type: "string", description: "Two sentences at most, written for someone on call." },
     findings: {
       type: "array",
-      description: "One entry per installed package. Never merge packages: php8.4-cli and php8.4-fpm are separate findings even at the same version.",
+      description: "One entry per engine-carrying package (php8.x-cli, -fpm, -cgi, -phpdbg, libapache2-mod-php8.x, libphp8.x-embed), or one entry named php for an upstream build. Never merge them: php8.4-cli and php8.4-fpm are separate findings even at the same version. Extension packages such as php8.x-common need no entry.",
       items: {
         type: "object",
         required: [
@@ -251,10 +255,10 @@ How to work:
 
 1. Read the facts. List the PHP packages with their exact installed versions, and note which are runtime evidence and which are only build intent.
 2. Establish the distro release, so you have the right OSV ecosystem.
-3. For every distro-packaged PHP package, call check_distro_fix with that package's own exact version. One call per package. A patched php8.4-cli tells you nothing whatsoever about php8.4-fpm.
+3. For every distro package that carries the PHP engine (php8.x-cli, php8.x-fpm, php8.x-cgi, php8.x-phpdbg, libapache2-mod-php8.x, libphp8.x-embed), call check_distro_fix with that package's own exact version. One call per package. A patched php8.4-cli tells you nothing whatsoever about php8.4-fpm. Extension and support packages such as php8.x-common or php8.x-mysql share the source package and are covered by those verdicts: do not check them or write findings for them.
 4. For an upstream build (an official php: image, or a source build), there is no distro package, so use fetch_cve and version_in_range against the upstream ranges instead, and call check_eol for the branch.
 5. Read the advisory for configuration mitigations and for what it says about each SAPI.
-6. Write one finding per package.
+6. Write one finding per engine-carrying package, or a single finding named php for an upstream build.
 
 Hard rules:
 
@@ -428,13 +432,16 @@ export const emptyLedger = (facts: Fact[] = []): Ledger => ({ distro: [], ranges
  * ------------------------------------------------------------------ */
 
 export const INVARIANTS = {
-  I1: "NOT_AFFECTED requires an OSV-confirmed distro fix for this exact installed version, or a code-computed out-of-range result.",
-  I2: "AFFECTED_MITIGATED requires evidence the package is affected, plus a configuration mitigation quoted from the advisory.",
-  I3: "A verdict more reassuring than UNVERIFIED requires runtime evidence of what is installed, not build intent.",
+  I1: "NOT_AFFECTED requires an OSV-confirmed fix for this exact installed version in this stack's own ecosystem, or a code-computed out-of-range result.",
+  I2: "AFFECTED_MITIGATED requires sourced evidence that the package is affected, plus a mitigation.",
+  I3: "A verdict more reassuring than UNVERIFIED requires runtime evidence of this package's own installed version.",
   I4: "An inexact version cannot decide a range that splits inside its own branch.",
   I5: "A package's verdict must rest on that package's own installed version, never on another package's.",
-  I6: "Every PHP package in the stack needs a verdict. A package nobody assessed is not a clean package.",
+  I6: "Every engine-carrying PHP package in the stack needs a verdict. A package nobody assessed is not a clean package.",
   I7: "A range may only clear a package if its boundary versions appear in something actually fetched this run.",
+  I8: "A range clears a version only if no range places it inside, and the clearing range covers the version's own branch.",
+  I9: "A finding must name a package that is in the parsed inventory.",
+  I10: "A mitigation counts only if its quote appears in a fetched advisory, names the setting, and the stack actually sets it.",
 } as const;
 
 /** Version-like tokens in a range, without swallowing trailing punctuation. */
@@ -450,19 +457,44 @@ export function appearsVerbatim(token: string, text: string): boolean {
   return new RegExp(`(?<![\\w.])${escaped}(?![\\w~+-]|\\.\\d)`).test(text);
 }
 
+/**
+ * Packages that carry the PHP engine, which is where the vulnerability lives.
+ * Extension and support packages (php8.x-common, php8.x-mysql, the php8.x
+ * metapackage) share the source package and are covered by these verdicts.
+ */
+const ENGINE_PACKAGE = /^(?:php\d+\.\d+-(?:cli|fpm|cgi|phpdbg)|libapache2-mod-php\d+\.\d+|libphp\d+\.\d+-embed)$/i;
+export const carriesEngine = (name: string, distroPhpInstalled: boolean) =>
+  ENGINE_PACKAGE.test(name.trim()) || (name.trim().toLowerCase() === "php" && !distroPhpInstalled);
+
 const exactVersion = (v: string) => /^\d+(\.\d+){2,}/.test(v.trim()) || /ubuntu|deb\d+|\+esm|~/i.test(v);
-const isBinaryPackage = (name: string) => /^(?:lib)?(?:apache2-mod-)?php\d+\.\d+-|^libapache2-mod-php\d+\.\d+$/i.test(name.trim());
+
+/** 8.4.16 -> 8.4.0. The point a range must reach to say anything about 8.4. */
+const branchFloor = (v: string) => {
+  const m = v.trim().match(/^(\d+)\.(\d+)/);
+  return m ? `${m[1]}.${m[2]}.0` : null;
+};
 
 /** Is the whole minor branch inside the range, so an inexact version still decides it? */
 function branchWideAffected(version: string, range: string): boolean {
   const branch = version.trim().match(/^(\d+)\.(\d+)/);
   if (!branch) return false;
-  const floor = `${branch[1]}.${branch[2]}.0`;
-  const ceiling = `${branch[1]}.${branch[2]}.99999`;
-  const a = version_in_range(floor, range);
-  const b = version_in_range(ceiling, range);
+  const a = version_in_range(`${branch[1]}.${branch[2]}.0`, range);
+  const b = version_in_range(`${branch[1]}.${branch[2]}.99999`, range);
   return a.ok && b.ok && a.inRange && b.inRange;
 }
+
+/** Compare quoted prose with fetched prose without tripping on formatting: the
+ *  words must match exactly, the quote marks and whitespace need not. */
+const normaliseProse = (t: string) =>
+  t.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/`/g, "").replace(/\s+/g, " ").trim();
+
+/** ini values that mean the same thing written differently. */
+const normaliseIni = (v: string) => {
+  const x = v.trim().replace(/^["']|["']$/g, "").toLowerCase();
+  if (["0", "off", "false", "no"].includes(x)) return "0";
+  if (["1", "on", "true", "yes"].includes(x)) return "1";
+  return x;
+};
 
 export function enforceInvariants(
   report: FirstWatchReport,
@@ -470,47 +502,109 @@ export function enforceInvariants(
 ): { report: FirstWatchReport; log: NonNullable<FirstWatchReport["enforcement_log"]> } {
   const log: NonNullable<FirstWatchReport["enforcement_log"]> = [];
 
-  /** Did we actually read this range anywhere, or did the model produce it? */
-  const provenanced = (range: string) => {
+  // ---- what the stack is, independently of anything the model said ----
+  const inventory = new Map<string, Fact[]>();
+  for (const f of ledger.facts) {
+    const m = f.field.match(/^pkg\.(.+)$/);
+    if (!m || f.field.endsWith(".unmapped")) continue;
+    const key = m[1].toLowerCase();
+    inventory.set(key, [...(inventory.get(key) ?? []), f]);
+  }
+  const distroPhpInstalled = [...inventory.keys()].some((n) => sourcePackageOf(n) !== null);
+  const stackEcosystem = ledger.facts.find((f) => f.field === "os.ecosystem")?.value ?? null;
+  const sameEcosystem = (e: string) => !!stackEcosystem && e.toLowerCase() === stackEcosystem.toLowerCase();
+  const anyRuntime = ledger.facts.some((f) => f.kind === "runtime");
+
+  // ---- what was actually read this run ----
+  const fetchedProse = ledger.fetched.map((src) => ({ source: src.source, text: normaliseProse(src.text) }));
+  /** The one fetched source that contains every boundary of this range, if any. */
+  const provenanceOf = (range: string) => {
     const bounds = range.match(BOUNDARY_VERSIONS) ?? [];
-    return bounds.length > 0 && bounds.every((b) => ledger.fetched.some((src) => appearsVerbatim(b, src.text)));
+    if (!bounds.length) return null;
+    return ledger.fetched.find((src) => bounds.every((b) => appearsVerbatim(b, src.text))) ?? null;
+  };
+  const quoteSourceOf = (quote: string) => {
+    const q = normaliseProse(quote);
+    if (q.length < 20) return null; // a fragment like "memory_limit" proves nothing
+    return fetchedProse.find((src) => src.text.includes(q)) ?? null;
   };
 
   const findings = report.findings.map((finding) => {
     const pkg = str(finding.package).trim();
+    const key = pkg.toLowerCase();
     const version = str(finding.installed_version).trim();
     const source = sourcePackageOf(pkg);
     const enforcement: NonNullable<PackageFinding["enforcement"]> = [];
+    const inInventory = inventory.has(key);
 
-    // --- what the tools actually established about THIS package at THIS version ---
-    const distro = ledger.distro.filter(
-      (d) =>
-        d.version === version &&
-        (d.package.toLowerCase() === pkg.toLowerCase() || (!!source && d.sourcePackage === source)),
+    // ---- OSV: only a clean fixed row, in this stack's own ecosystem, clears ----
+    const rows = ledger.distro.filter(
+      (d) => d.version === version && (d.package.toLowerCase() === key || (!!source && d.sourcePackage === source)),
     );
-    const clearedByOsv = distro.some((d) => d.status === "fixed");
-    const affectedByOsv = distro.some((d) => d.status === "affected");
+    const fixedRows = rows.filter((d) => d.status === "fixed");
+    const affectedRows = rows.filter((d) => d.status === "affected");
+    const fixedHere = fixedRows.find((d) => sameEcosystem(d.ecosystem));
+    const affectedHere = affectedRows.find((d) => sameEcosystem(d.ecosystem));
+    const clearedByOsv = !!fixedHere && affectedRows.length === 0;
+    const osvRejected =
+      fixedRows.length && !clearedByOsv
+        ? affectedRows.length
+          ? `OSV returned both fixed and affected for ${pkg} ${version}, and a conflict cannot clear anything`
+          : !stackEcosystem
+            ? "this stack's distro ecosystem was never established, so no OSV row can be matched to it"
+            : `the OSV row was evaluated in ${[...new Set(fixedRows.map((d) => d.ecosystem))].join(", ")}, but this stack is ${stackEcosystem}`
+        : null;
 
+    // ---- ranges: every result must agree, and the clearing one must address this branch ----
     const ranges = ledger.ranges.filter((r) => r.version === version);
-    const inRange = ranges.some((r) => r.inRange);
-    // A range only clears a package if we read that range somewhere. An
-    // invented range can still raise an alarm, which is the safe direction.
+    const anyIn = ranges.some((r) => r.inRange);
+    const floor = branchFloor(version);
+    const coversBranch = (range: string) => {
+      if (!floor) return false;
+      const r = version_in_range(floor, range);
+      return r.ok && r.inRange;
+    };
     const clearing = ranges.filter((r) => !r.inRange);
-    const outOfRange = clearing.some((r) => provenanced(r.range));
-    const fabricatedClear = clearing.find((r) => !provenanced(r.range));
+    const validClear = anyIn ? undefined : clearing.find((r) => provenanceOf(r.range) && coversBranch(r.range));
+    const outOfRange = !!validClear;
+    const fabricatedClear = clearing.find((r) => !provenanceOf(r.range));
+    const misdirectedClear = clearing.find((r) => provenanceOf(r.range) && (anyIn || !coversBranch(r.range)));
+    const sourcedIn = ranges.find((r) => r.inRange && provenanceOf(r.range));
 
-    // Runtime evidence for this package's own version, and for the stack at all.
-    const ownRuntimeVersion = ledger.facts.some(
+    // ---- this package's own installed version, and nothing else ----
+    const ownFact = ledger.facts.find(
       (f) =>
         f.kind === "runtime" &&
         f.value === version &&
-        (f.field === `pkg.${pkg}` || (pkg === "php" && f.field === "php.version")),
+        (f.field.toLowerCase() === `pkg.${key}` || (key === "php" && f.field === "php.version" && !distroPhpInstalled)),
     );
-    const anyRuntimeEvidence = ledger.facts.some((f) => f.kind === "runtime");
+    const borrowedFrom = ownFact
+      ? undefined
+      : ledger.facts.find(
+          (f) => f.kind === "runtime" && f.value === version && f.field.startsWith("pkg.") && f.field.toLowerCase() !== `pkg.${key}`,
+        );
+
+    // ---- mitigations: quoted from a fetched advisory, and actually set here ----
+    const judged = (finding.mitigations ?? []).map((m) => {
+      const setting = str(m.setting).trim().toLowerCase();
+      const fact = ledger.facts.find((f) => f.field === `ini.${setting}`);
+      const src = quoteSourceOf(str(m.quote));
+      const problem = !src
+        ? "its quote does not appear in any advisory fetched this run"
+        : !normaliseProse(str(m.quote)).toLowerCase().includes(setting)
+          ? `its quote does not mention ${setting}`
+          : !fact
+            ? `${setting} is not set anywhere in the stack's files`
+            : normaliseIni(fact.value) !== normaliseIni(str(m.value))
+              ? `the stack sets ${setting}=${fact.value}, not ${str(m.value)}`
+              : null;
+      return { m, src, fact, problem };
+    });
+    const validMitigation = judged.find((j) => !j.problem);
 
     const inexact = !exactVersion(version);
     const branchDecides = ranges.some((r) => branchWideAffected(version, r.range));
-    const hasMitigation = (finding.mitigations ?? []).some((m) => str(m.quote).trim().length > 0);
+    const evidenceSaysAffected = affectedRows.length > 0 || anyIn;
 
     let verdict = finding.verdict;
     const demote = (to: Verdict, invariant: keyof typeof INVARIANTS, reason: string) => {
@@ -519,50 +613,96 @@ export function enforceInvariants(
       log.push({ package: pkg, invariant, from: verdict, to, why: reason });
       verdict = to;
     };
+    const reassuring = () => REASSURANCE[verdict] > REASSURANCE.UNVERIFIED;
+
+    // Evidence about the version question runs first, so that when a clearance
+    // is refused the fallback reflects what the evidence actually says.
 
     // I7: a range nobody fetched cannot clear anything.
     if (verdict === "NOT_AFFECTED" && !clearedByOsv && !outOfRange && fabricatedClear) {
       demote(
-        inRange ? "AFFECTED" : "UNVERIFIED",
+        evidenceSaysAffected ? "AFFECTED" : "UNVERIFIED",
         "I7",
         `The range "${fabricatedClear.range}" was used to clear ${pkg}, but its boundary versions do not appear in any advisory or CVE record fetched this run. An unsourced range cannot clear a package.`,
       );
     }
 
+    // I8: a real range about the wrong branch, or one contradicted by another range.
+    if (verdict === "NOT_AFFECTED" && !clearedByOsv && !outOfRange && misdirectedClear) {
+      demote(
+        evidenceSaysAffected ? "AFFECTED" : "UNVERIFIED",
+        "I8",
+        anyIn
+          ? `${version} is outside "${misdirectedClear.range}", but another range result places it inside "${ranges.find((r) => r.inRange)?.range}". Ranges that disagree cannot clear a package.`
+          : `"${misdirectedClear.range}" does not cover ${floor ?? "the branch floor"}, so it says nothing about the branch ${version} belongs to. Being outside a range for another branch is not a fix.`,
+      );
+    }
+
     // I1: clearing a package needs OSV or arithmetic, not an argument.
     if (verdict === "NOT_AFFECTED" && !clearedByOsv && !outOfRange) {
-      const fallback: Verdict = affectedByOsv || inRange ? (hasMitigation ? "AFFECTED_MITIGATED" : "AFFECTED") : "UNVERIFIED";
       demote(
-        fallback,
+        evidenceSaysAffected ? (validMitigation ? "AFFECTED_MITIGATED" : "AFFECTED") : "UNVERIFIED",
         "I1",
-        `No check_distro_fix "fixed" result and no out-of-range result exists for ${pkg} ${version}. ${
-          affectedByOsv || inRange ? "The evidence on hand says it is affected." : "Nothing established the version question either way."
+        `${osvRejected ? `An OSV "fixed" row exists but cannot be used: ${osvRejected}. ` : ""}No usable fixed result and no usable out-of-range result exists for ${pkg} ${version}. ${
+          evidenceSaysAffected ? "The evidence on hand says it is affected." : "Nothing established the version question either way."
         }`,
       );
     }
 
-    // I2: a mitigation is a reduction from affected, not a substitute for evidence.
+    // I2: a mitigation reduces an established, sourced "affected". It cannot
+    // stand in for the evidence, and an invented range cannot supply it.
     if (verdict === "AFFECTED_MITIGATED") {
-      if (!affectedByOsv && !inRange) {
-        demote("UNVERIFIED", "I2", `Nothing established that ${pkg} ${version} is affected, so there is nothing for a mitigation to reduce.`);
-      } else if (!hasMitigation) {
-        demote("AFFECTED", "I2", "No configuration mitigation was quoted from the advisory, so the verdict cannot be reduced below AFFECTED.");
+      if (!affectedHere && !sourcedIn) {
+        demote(
+          "UNVERIFIED",
+          "I2",
+          `Nothing sourced establishes that ${pkg} ${version} is affected: no OSV "affected" row in ${stackEcosystem ?? "this stack's ecosystem"}, and no in-range result from a fetched range. There is nothing for a mitigation to reduce.`,
+        );
+      } else if (!judged.length) {
+        demote("AFFECTED", "I2", "No configuration mitigation was given, so the verdict cannot be reduced below AFFECTED.");
+      } else if (!validMitigation) {
+        // I10: a mitigation must be real on both sides: stated by the advisory, present in the stack.
+        demote("AFFECTED", "I10", judged.map((j) => `${str(j.m.setting)}=${str(j.m.value)}: ${j.problem}`).join("; "));
       }
     }
 
-    // I3: you cannot reassure anyone from build intent alone.
-    if ((verdict === "NOT_AFFECTED" || verdict === "AFFECTED_MITIGATED") && !anyRuntimeEvidence) {
+    // I9: findings about packages this stack does not have.
+    if (!inInventory && reassuring()) {
       demote(
         "UNVERIFIED",
-        "I3",
-        `There is no runtime evidence in this stack, only build files. ${finding.version_source ?? "unknown"} describes what the build asked for, not what is installed.`,
+        "I9",
+        `"${pkg}" is not in the parsed inventory (${[...inventory.keys()].join(", ") || "empty"}).${
+          key === "php" && distroPhpInstalled ? " On a host with distro PHP packages, php -v is not a package." : ""
+        }`,
       );
     }
 
-    // I4: "8.4" cannot answer a range that splits inside the 8.4 branch, so it
-    // cannot clear or reduce anything. Like every invariant it caps reassurance
-    // only: an alarm raised on an inexact version stands.
-    if (inexact && !clearedByOsv && !affectedByOsv && !branchDecides && REASSURANCE[verdict] > REASSURANCE.UNVERIFIED) {
+    // I5: the version belongs to a sibling package, which is the split-package trap.
+    if (!ownFact && borrowedFrom && reassuring()) {
+      demote(
+        "UNVERIFIED",
+        "I5",
+        `${version} is the installed version of ${borrowedFrom.field.slice(4)} (${borrowedFrom.file}:${borrowedFrom.line}), not of ${pkg}. A sibling package's version cannot decide this one.`,
+      );
+    }
+
+    // I3: no runtime evidence of this package's own version.
+    if (!ownFact && reassuring()) {
+      demote(
+        "UNVERIFIED",
+        "I3",
+        !anyRuntime
+          ? `There is no runtime evidence in this stack, only build files. ${finding.version_source ?? "unknown"} describes what the build asked for, not what is installed.`
+          : `No runtime evidence lists ${pkg} at ${version}.${
+              key === "php" && distroPhpInstalled ? " php -v cannot stand in for a package on a host with distro PHP packages." : ""
+            }`,
+      );
+    }
+
+    // I4: backstop. Since I8 requires a clearing range to cover the branch
+    // floor, and an inexact "8.4" compares as 8.4.0, a range can no longer
+    // clear an inexact version at all; this catches anything that slips past.
+    if (inexact && !clearedByOsv && !affectedRows.length && !branchDecides && reassuring()) {
       demote(
         "UNVERIFIED",
         "I4",
@@ -570,17 +710,35 @@ export function enforceInvariants(
       );
     }
 
-    // I5: php -v is about the CLI binary. It is not evidence about php-fpm.
-    if (isBinaryPackage(pkg) && !ownRuntimeVersion && verdict !== "AFFECTED" && verdict !== "UNVERIFIED") {
-      demote(
-        "UNVERIFIED",
-        "I5",
-        `No runtime evidence lists ${pkg} at ${version}. A version taken from another package or from a build file cannot decide this one.`,
-      );
-    }
+    if (enforcement.length) return { ...finding, verdict, enforcement };
 
-    return enforcement.length ? { ...finding, verdict, enforcement } : { ...finding, verdict };
+    // E: a verdict that survived records what permitted it.
+    const installed = ownFact ? `installed version read from ${ownFact.file}:${ownFact.line}` : "";
+    let allow_reason: string;
+    if (verdict === "NOT_AFFECTED" && clearedByOsv && fixedHere) {
+      allow_reason = `OSV row: ${fixedHere.ecosystem} ${fixedHere.sourcePackage ?? fixedHere.package} ${fixedHere.version} is fixed${
+        fixedHere.fixedVersion ? ` (fixed in ${fixedHere.fixedVersion})` : ""
+      }, in this stack's own ecosystem, with no affected row; ${installed}.`;
+    } else if (verdict === "NOT_AFFECTED" && validClear) {
+      allow_reason = `Range result: ${version} is outside "${validClear.range}", read in ${provenanceOf(validClear.range)?.source}, which covers the ${floor} branch floor, and no range placed it inside; ${installed}.`;
+    } else if (verdict === "AFFECTED_MITIGATED" && validMitigation) {
+      const affectedBy = affectedHere
+        ? `OSV row ${affectedHere.ecosystem} ${affectedHere.sourcePackage ?? affectedHere.package} ${affectedHere.version} affected`
+        : `${version} inside "${sourcedIn?.range}", read in ${provenanceOf(sourcedIn?.range ?? "")?.source}`;
+      allow_reason = `Affected per ${affectedBy}; mitigated by ${str(validMitigation.m.setting)}=${str(validMitigation.m.value)}, quoted from ${validMitigation.src?.source} and set at ${validMitigation.fact?.file}:${validMitigation.fact?.line}; ${installed}.`;
+    } else if (verdict === "AFFECTED") {
+      const support = affectedRows[0]
+        ? `OSV row ${affectedRows[0].ecosystem} ${affectedRows[0].sourcePackage ?? affectedRows[0].package} ${affectedRows[0].version} affected`
+        : ranges.find((r) => r.inRange)
+          ? `${version} inside "${ranges.find((r) => r.inRange)?.range}"`
+          : null;
+      allow_reason = `An alarm needs no permission.${support ? ` Supported by ${support}.` : " No supporting tool result was recorded."}`;
+    } else {
+      allow_reason = "UNVERIFIED asserts nothing, so it needs no evidence.";
+    }
+    return { ...finding, verdict, allow_reason };
   });
+
 
   // I6: coverage. Walk the packages the stack actually has and synthesize a
   // finding for any the model skipped. Silence about a package is not a clean
@@ -596,8 +754,13 @@ export function enforceInvariants(
   }
 
   const synthesized: PackageFinding[] = [];
+  const covered: string[] = [];
   for (const [name, seen] of byName) {
     if (assessed.has(name.toLowerCase())) continue;
+    if (!carriesEngine(name, distroPhpInstalled)) {
+      covered.push(name);
+      continue;
+    }
     const runtime = seen.filter((x) => x.kind === "runtime");
     const use = (runtime.length ? runtime : seen)[0];
     const why = `${name} ${use.version} is installed according to ${use.where}, but the report contains no finding for it. A package that was not assessed cannot be treated as unaffected.`;
@@ -642,7 +805,21 @@ export function enforceInvariants(
     ? allFindings.reduce<Verdict>((worst, f) => (REASSURANCE[f.verdict] < REASSURANCE[worst] ? f.verdict : worst), "NOT_AFFECTED")
     : "UNVERIFIED";
 
-  return { report: { ...report, findings: allFindings, overall, enforcement_log: log }, log };
+  const coveredNote = covered.length
+    ? ` Also installed: ${covered.join(", ")} (share the source package; covered by the SAPI verdicts).`
+    : "";
+
+  return {
+    report: {
+      ...report,
+      summary: `${str(report.summary).trim()}${coveredNote}`.trim(),
+      findings: allFindings,
+      overall,
+      covered_packages: covered,
+      enforcement_log: log,
+    },
+    log,
+  };
 }
 
 /* ------------------------------------------------------------------ *
