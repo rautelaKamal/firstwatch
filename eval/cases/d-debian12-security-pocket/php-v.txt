@@ -1,0 +1,2 @@
+PHP 8.2.35 (cli) (built: Oct 23 2026 06:41:18) (NTS)
+Zend Engine v4.2.35, Copyright (c) Zend Technologies

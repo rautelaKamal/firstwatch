@@ -1,0 +1,2 @@
+PHP 8.3.6 (cli) (built: Oct 22 2026 11:02:51) (NTS)
+Zend Engine v4.3.6, Copyright (c) Zend Technologies

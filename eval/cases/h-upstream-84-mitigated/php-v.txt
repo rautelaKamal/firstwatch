@@ -1,0 +1,2 @@
+PHP 8.4.12 (fpm-fcgi) (built: Sep 18 2026 04:33:09)
+Zend Engine v4.4.12, Copyright (c) Zend Technologies

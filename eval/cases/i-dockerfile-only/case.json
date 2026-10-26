@@ -1,0 +1,11 @@
+{
+  "id": "i-dockerfile-only",
+  "description": "A Dockerfile and nothing else, on the floating php:8.4-fpm tag. The tag resolves to whatever was current at build time, and the affected range splits inside the 8.4 branch at 8.4.27, so no range check can decide it. Nothing can be concluded and the agent must say so and name the command that would settle it.",
+  "stack": "php:8.4-fpm image, no other detail supplied",
+  "cve": "CVE-2026-109618",
+  "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "ground_truth": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "expect": { "verdict": "UNVERIFIED", "also_acceptable": [], "must_mention": "php -v" },
+  "baseline_expected": "AFFECTED",
+  "why": "Floating tag gives 8.4 only; the range is fixed at 8.4.27, inside that branch. Invariant I4 forces UNVERIFIED."
+}

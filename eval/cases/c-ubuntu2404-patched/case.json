@@ -1,0 +1,11 @@
+{
+  "id": "c-ubuntu2404-patched",
+  "description": "Ubuntu 24.04 running php8.3-fpm at Ubuntu's fixed version. The upstream 8.3 branch is only fixed in 8.3.36, so the upstream number 8.3.6 looks far behind and a scanner flags it.",
+  "stack": "Ubuntu 24.04 LTS, nginx with php8.3-fpm",
+  "cve": "CVE-2026-109618",
+  "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "ground_truth": "https://ubuntu.com/security/CVE-2026-109618",
+  "expect": { "verdict": "NOT_AFFECTED", "also_acceptable": [], "must_mention": "8.3.6-0ubuntu0.24.04.13" },
+  "baseline_expected": "AFFECTED",
+  "why": "OSV: Ubuntu:24.04:LTS php8.3 fixed in 8.3.6-0ubuntu0.24.04.13; installed version is exactly that."
+}

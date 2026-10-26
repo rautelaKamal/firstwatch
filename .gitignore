@@ -150,3 +150,6 @@ vite.config.ts.timestamp-*
 
 # Vercel
 .vercel
+
+# eval run outputs
+eval/out/

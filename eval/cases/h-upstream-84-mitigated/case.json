@@ -1,0 +1,11 @@
+{
+  "id": "h-upstream-84-mitigated",
+  "description": "Upstream php:8.4.12-fpm, inside the affected range, with both configuration mitigations the advisory names applied administratively. The advisory is explicit that updating is the only complete mitigation, so this is reduced, not cleared.",
+  "stack": "Official php:8.4.12-fpm image, memory_limit=-1 and session.upload_progress.enabled=0 applied",
+  "cve": "CVE-2026-109618",
+  "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "ground_truth": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "expect": { "verdict": "AFFECTED_MITIGATED", "also_acceptable": ["AFFECTED"], "must_mention": "8.4.27" },
+  "baseline_expected": "AFFECTED",
+  "why": "8.4.12 is inside >= 8.4.0 < 8.4.27. memory_limit=-1 is 'the primary configuration mitigation' and session.upload_progress.enabled=0 is named, but 'Updating ... is the only complete mitigation'."
+}

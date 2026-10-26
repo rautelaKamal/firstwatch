@@ -1,0 +1,11 @@
+{
+  "id": "d-debian12-security-pocket",
+  "description": "Debian 12 with bookworm-security enabled, so php8.2 is at the DLA-fixed 8.2.35-1~deb12u1.",
+  "stack": "Debian 12 bookworm, nginx with php8.2-fpm",
+  "cve": "CVE-2026-109618",
+  "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+  "ground_truth": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
+  "expect": { "verdict": "NOT_AFFECTED", "also_acceptable": [], "must_mention": "8.2.35-1~deb12u1" },
+  "baseline_expected": "NOT_AFFECTED",
+  "why": "OSV: Debian:12 php8.2 fixed in 8.2.35-1~deb12u1; installed version is exactly that. Debian 12 is LTS so the advisory is a DLA, not a DSA."
+}

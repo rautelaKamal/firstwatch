@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "agent": "tsx scripts/run.mts",
+    "eval": "tsx scripts/eval.mts",
+    "verify-truth": "tsx scripts/verify-truth.mts",
+    "test": "tsx scripts/test-invariants.mts"
   },
   "dependencies": {
     "cheerio": "^1.1.0",
@@ -23,6 +27,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
