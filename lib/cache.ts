@@ -74,6 +74,11 @@ export function cacheEntries<T>(prefix: string): T[] {
   return out;
 }
 
+/** An NVD record from the cache or the seed, however old, without touching the network. */
+export function cachedCveNow(id: string): CveRecord | null {
+  return cacheGetStale<CveRecord>(`nvd-${id.toUpperCase()}`);
+}
+
 /** The raw advisory page, fetched once a day at most. */
 export async function cachedAdvisory(url: string): Promise<(Advisory & { cached: boolean }) | Fail> {
   const key = `advisory-${hash(url)}`;

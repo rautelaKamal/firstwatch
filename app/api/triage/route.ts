@@ -16,6 +16,7 @@
 
 import { runAgent, type AgentEvent, type FirstWatchReport } from "@/lib/agent";
 import { runBaseline } from "@/lib/baseline";
+import { cachedCveNow } from "@/lib/cache";
 import { caseSpec, savedRun } from "@/lib/examples";
 import { allowLiveRun, clientIp } from "@/lib/limits";
 import { emptyUsage, type TokenUsage } from "@/lib/llm";
@@ -26,6 +27,12 @@ import { parse_stack } from "@/lib/tools";
 export const maxDuration = 300;
 // Stop starting requests this long before the limit, so the run ends with a message, not a cut stream.
 const DEADLINE_MARGIN_MS = 20_000;
+
+// A comment line every 10 s keeps proxies from dropping a connection that is
+// waiting on a rate limit or a model call.
+const HEARTBEAT_MS = 10_000;
+// Opening padding: some proxies hold a response until a few KB have arrived.
+const OPEN_PADDING = `: ${" ".repeat(2048)}\n\n`;
 
 const MAX_FILES = 12;
 const MAX_FILE_CHARS = 200_000;
@@ -108,34 +115,83 @@ export async function POST(req: Request) {
   const wantsLive = body.live === true;
   const spec = caseSpec(exampleId);
   const encoder = new TextEncoder();
+  let closed = false;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const stop = () => {
+    closed = true;
+    if (heartbeat) clearInterval(heartbeat);
+  };
+  // The visitor left: stop the run, so no model call is spent on nobody.
+  req.signal?.addEventListener("abort", stop);
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (event: StreamEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      try {
-        // Code, free, always live.
-        const baseline = await runBaseline({ files, cve: spec.cve, cves: spec.cves, target: spec.target });
-        send({ type: "baseline", report: baseline.report, version: baseline.version });
-
-        let live = false;
-        if (wantsLive) {
-          const decision = await allowLiveRun(ip);
-          live = decision.ok;
-          if (!decision.ok) send({ type: "live_unavailable", reason: decision.reason, message: decision.message });
+  const stream = new ReadableStream<Uint8Array>({
+    // start() returns at once and the work runs detached, so nothing about
+    // flushing the response depends on when the pipeline finishes.
+    start(controller) {
+      const write = (text: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          stop();
         }
-        const events = live
-          ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources, model, deadline: startedAt + maxDuration * 1000 - DEADLINE_MARGIN_MS })
-          : replay(exampleId, files);
-        for await (const event of events) send(event);
-      } catch (e) {
-        send({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      } finally {
-        controller.close();
-      }
+      };
+      const send = (event: StreamEvent) => write(`data: ${JSON.stringify(event)}\n\n`);
+      write(OPEN_PADDING);
+      heartbeat = setInterval(() => write(`: keepalive ${Date.now()}\n\n`), HEARTBEAT_MS);
+
+      void (async () => {
+        try {
+          // 1. The scanner baseline first. Code only, and from the cached NVD records
+          //    when we have them, so it goes out before any network or model wait.
+          const records = spec.cves.map((id) => cachedCveNow(id));
+          const ranges = records.every((r) => r && "found" in r && r.found)
+            ? records.flatMap((r) => (r && "found" in r && r.found ? r.affected.filter((a) => a.product === "php/php").map((a) => a.range) : []))
+            : undefined;
+          const baseline = await runBaseline({ files, cve: spec.cve, cves: spec.cves, target: spec.target, ranges });
+          send({ type: "baseline", report: baseline.report, version: baseline.version });
+
+          // 2. Only now the checks that may wait.
+          let live = false;
+          if (wantsLive) {
+            const decision = await allowLiveRun(ip);
+            live = decision.ok;
+            if (!decision.ok) send({ type: "live_unavailable", reason: decision.reason, message: decision.message });
+          }
+          const events = live
+            ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources, model, deadline: startedAt + maxDuration * 1000 - DEADLINE_MARGIN_MS })
+            : replay(exampleId, files);
+          for await (const event of events) {
+            if (closed) break; // ends the generator, so the agent makes no further calls
+            send(event);
+          }
+        } catch (e) {
+          send({ type: "error", message: e instanceof Error ? e.message : String(e) });
+        } finally {
+          const wasClosed = closed;
+          stop();
+          if (!wasClosed) {
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          }
+        }
+      })();
+    },
+    cancel() {
+      stop();
     },
   });
 
   return new Response(stream, {
-    headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive" },
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      // nginx-style proxies: do not buffer this response.
+      "x-accel-buffering": "no",
+    },
   });
 }

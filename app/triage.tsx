@@ -314,6 +314,9 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
   const [recorded, setRecorded] = useState<Recorded | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [liveRun, setLiveRun] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
   const [inputsOpen, setInputsOpen] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
@@ -333,6 +336,9 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     setRecorded(null);
     setNotice(null);
     setFailure(null);
+    setLiveRun(opts.live);
+    setStartedAt(Date.now());
+    setNow(Date.now());
     setInputsOpen(false);
     // Scrolling now would aim at a spot that moves when the inputs above collapse.
     scrollPending.current = true;
@@ -391,6 +397,13 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     setExampleId(ex.id);
     run({ runtime: ex.runtime, config: ex.config, exampleId: ex.id, live: false });
   };
+
+  // A ticking clock while a live run streams, so a long rate-limit wait never looks like a hang.
+  useEffect(() => {
+    if (!running || !liveRun) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [running, liveRun]);
 
   // Bring the example sentence and verdict box to the top once a clicked run has a result.
   useEffect(() => {
@@ -512,7 +525,19 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
         {notice && (
           <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200">{notice}</p>
         )}
-        {running && !report && <p className="animate-pulse text-sm text-neutral-500">Running…</p>}
+        {running && !report && !liveRun && <p className="animate-pulse text-sm text-neutral-500">Loading the recorded run…</p>}
+        {running && liveRun && (
+          <section className="rounded-xl border border-sky-300 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/40">
+            <p className="text-sm font-medium text-sky-900 dark:text-sky-200">
+              Live run in progress · {startedAt ? `${Math.floor((now - startedAt) / 60000)}:${String(Math.floor(((now - startedAt) % 60000) / 1000)).padStart(2, "0")}` : "0:00"}
+              <span className="ml-2 font-normal text-sky-800/80 dark:text-sky-300/80">Usually 2 to 4 minutes: requests are paced to the free tier&apos;s rate limit.</span>
+            </p>
+            <ol className="mt-3 space-y-1 font-mono text-xs leading-5">
+              {log.length === 0 && <li className="animate-pulse text-neutral-500">Connecting…</li>}
+              {log.map((l, i) => <li key={i} className={`break-words ${TONE[l.tone]}`}>{l.text}</li>)}
+            </ol>
+          </section>
+        )}
         {!running && !report && (failure || baseline) && (
           <div className="rounded-xl border border-neutral-300 p-4 dark:border-neutral-700">
             {baseline && (
@@ -563,7 +588,7 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
           </>
         )}
 
-        {log.length > 0 && (
+        {log.length > 0 && !(running && liveRun) && (
           <details open={running} className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
             <summary className="cursor-pointer text-sm font-medium">{running ? "Steps" : `Show the ${log.length} steps`}</summary>
             <ol className="mt-2 space-y-1 font-mono text-xs leading-5">
