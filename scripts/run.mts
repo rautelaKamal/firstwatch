@@ -133,7 +133,7 @@ function show(e: AgentEvent) {
         }
       }
       rule();
-      console.log(dim(`${e.iteration} iterations, ${e.toolCalls} tool calls, ${ms(e.ms)} total`));
+      console.log(dim(`${e.iteration} iterations, ${e.toolCalls} tool calls, ${ms(e.ms)} total, ${e.usage.total.toLocaleString()} tokens (${e.usage.prompt.toLocaleString()} in, ${e.usage.completion.toLocaleString()} out, ${e.usage.requests} requests)`));
       break;
     }
     case "error":

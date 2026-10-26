@@ -14,7 +14,7 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { runAgent, type AgentMode, type FirstWatchReport, type Verdict } from "../lib/agent";
+import { runAgent, type AgentMode, type FirstWatchReport, type TokenUsage, type Verdict } from "../lib/agent";
 import { parse_stack } from "../lib/tools";
 import { loadEnv } from "./env.mjs";
 
@@ -118,7 +118,18 @@ function dryRun(cases: Loaded[]): number {
 }
 
 /* --- one run ------------------------------------------------------ */
-type Result = { verdict: Verdict | "none"; report: FirstWatchReport | null; toolCalls: number; ms: number; note: string; downgrades: number };
+type Result = {
+  verdict: Verdict | "none";
+  report: FirstWatchReport | null;
+  toolCalls: number;
+  ms: number;
+  note: string;
+  downgrades: number;
+  usage: TokenUsage;
+};
+
+const noUsage = (): TokenUsage => ({ prompt: 0, completion: 0, total: 0, requests: 0 });
+const tokens = (u: TokenUsage) => `${u.total.toLocaleString()} tokens (${u.prompt.toLocaleString()} in, ${u.completion.toLocaleString()} out, ${u.requests} requests)`;
 
 async function runOne(k: Loaded, mode: AgentMode): Promise<Result> {
   const started = Date.now();
@@ -126,6 +137,7 @@ async function runOne(k: Loaded, mode: AgentMode): Promise<Result> {
   let toolCalls = 0;
   let note = "";
   let downgrades = 0;
+  let usage = noUsage();
   try {
     for await (const e of runAgent({
       stack: k.stack,
@@ -148,6 +160,7 @@ async function runOne(k: Loaded, mode: AgentMode): Promise<Result> {
       if (e.type === "final") {
         report = e.report;
         toolCalls = e.toolCalls;
+        usage = e.usage;
         if (!e.report) note = e.reportError ?? "no valid report";
         writeFileSync(join(OUT_DIR, `${k.id}.${mode}.json`), JSON.stringify({ case: k.id, mode, report: e.report, raw: e.report ? undefined : e.text }, null, 2));
       }
@@ -155,7 +168,7 @@ async function runOne(k: Loaded, mode: AgentMode): Promise<Result> {
   } catch (e) {
     note = e instanceof Error ? e.message : String(e);
   }
-  return { verdict: report?.overall ?? "none", report, toolCalls, ms: Date.now() - started, note, downgrades };
+  return { verdict: report?.overall ?? "none", report, toolCalls, ms: Date.now() - started, note, downgrades, usage };
 }
 
 function grade(want: Verdict, acceptable: Verdict[], got: Verdict | "none") {
@@ -193,8 +206,8 @@ async function liveRun(cases: Loaded[]) {
 
     const mark = (g: ReturnType<typeof grade>) =>
       g.status === "pass" ? green("PASS") : g.status === "soft" ? yellow("SOFT") : g.status === "err" ? red("ERR ") : red("FAIL");
-    console.log(`  ${mark(fwGrade)} firstwatch: ${fw.verdict}${fwGrade.unsafe ? red("  UNSAFE") : ""} ${dim(`${fw.toolCalls} calls, ${ms(fw.ms)}${fw.downgrades ? `, ${fw.downgrades} downgraded` : ""}`)}`);
-    if (base && baseGrade) console.log(`  ${mark(baseGrade)} baseline:   ${base.verdict}${baseGrade.unsafe ? red("  UNSAFE") : ""} ${dim(`${base.toolCalls} calls, ${ms(base.ms)}`)}`);
+    console.log(`  ${mark(fwGrade)} firstwatch: ${fw.verdict}${fwGrade.unsafe ? red("  UNSAFE") : ""} ${dim(`${fw.toolCalls} calls, ${ms(fw.ms)}${fw.downgrades ? `, ${fw.downgrades} downgraded` : ""}, ${tokens(fw.usage)}`)}`);
+    if (base && baseGrade) console.log(`  ${mark(baseGrade)} baseline:   ${base.verdict}${baseGrade.unsafe ? red("  UNSAFE") : ""} ${dim(`${base.toolCalls} calls, ${ms(base.ms)}, ${tokens(base.usage)}`)}`);
     if (fw.report?.summary) console.log(`  ${dim(fw.report.summary.slice(0, 240))}`);
     if (!mentioned) console.log(`  ${yellow("missing")} expected "${k.expect.must_mention}" in the report`);
     if (fw.note) console.log(`  ${red("note")} ${fw.note.slice(0, 200)}`);
@@ -228,6 +241,21 @@ async function liveRun(cases: Loaded[]) {
   if (baseT.total) {
     console.log(`  nvd-only    ${baseT.pass}/${baseT.total} exact, ${baseT.soft} acceptable, ${baseT.unsafe ? red(`${baseT.unsafe} unsafe`) : green("0 unsafe")}`);
   }
+  const sum = (pick: (r: (typeof rows)[number]) => TokenUsage | undefined) =>
+    rows.reduce((acc, r) => {
+      const u = pick(r);
+      if (!u) return acc;
+      return { prompt: acc.prompt + u.prompt, completion: acc.completion + u.completion, total: acc.total + u.total, requests: acc.requests + u.requests };
+    }, noUsage());
+  const fwTokens = sum((r) => r.fw.usage);
+  const baseTokens = sum((r) => r.base?.usage);
+  console.log(`\n  ${bold("tokens")}`);
+  console.log(`  firstwatch  ${tokens(fwTokens)}`);
+  if (baseT.total) console.log(`  nvd-only    ${tokens(baseTokens)}`);
+  const all = sum((r) => r.fw.usage).total + sum((r) => r.base?.usage).total;
+  console.log(`  ${bold(`total       ${all.toLocaleString()} tokens across ${rows.length} case${rows.length > 1 ? "s" : ""}`)}`);
+  if (rows.length) console.log(dim(`  at this rate, all 9 cases would be roughly ${Math.round((all / rows.length) * 9).toLocaleString()} tokens`));
+
   const gaps = rows.filter((r) => !r.mentioned).length;
   if (gaps) console.log(`  ${yellow(`${gaps} reports missing expected content`)}`);
   console.log(dim(`  reports written to ${OUT_DIR}/`));
