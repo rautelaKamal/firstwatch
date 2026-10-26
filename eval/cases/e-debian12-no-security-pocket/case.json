@@ -3,6 +3,10 @@
   "description": "Hero case. Debian 12 whose sources.list has no bookworm-security entry, so php8.2 is stuck at 8.2.32-1~deb12u1 while the fix sits in 8.2.35-1~deb12u1. The upstream version 8.2.32 is below upstream's 8.2.35 too, so this one is genuinely affected, and the remediation is to enable bookworm-security and upgrade.",
   "stack": "Debian 12 bookworm, nginx with php8.2-fpm, sources.list without the security pocket",
   "cve": "CVE-2026-109618",
+  "cves": [
+    "CVE-2026-109618",
+    "CVE-2026-109619"
+  ],
   "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
   "sources": [
     "https://www.php.net/archive/2026.php"

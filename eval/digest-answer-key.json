@@ -1,0 +1,38 @@
+{
+  "_note": "Expected facts a correct digest must contain. GHSA-w8hw items verified against the live advisory page on 2026-10-26; GHSA-6wmf items from an independent read (Alan), not yet re-verified. Each 'phrase' must appear verbatim in the source page. 'NOT STATED' facts must NOT appear as claims sourced to that advisory.",
+  "advisories": {
+    "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w": {
+      "cve": "CVE-2026-109618",
+      "ranges": ["< 8.2.35", "< 8.3.36", "< 8.4.27", "< 8.5.12"],
+      "fixed": ["8.2.35", "8.3.36", "8.4.27", "8.5.12"],
+      "sapi": {
+        "mod_php": "Apache mod_php unconditionally invokes the request shutdown procedure",
+        "fpm": "Source analysis therefore supports FPM as a susceptible, though no complete FPM exploit has been demonstrated for this SAPI.",
+        "frankenphp": "making it likely susceptible to application-independent attacks",
+        "lsapi": "LSAPI models FPM, with application-specific exploits being likely but unvalidated."
+      },
+      "mitigations_partial": ["memory_limit", "post_max_size", "max_input_nesting_level", "memory.max"],
+      "complete_fix_phrase": "is the *only* complete mitigation",
+      "anti_mitigations": ["RLIMIT_AS", "RLIMIT_DATA"],
+      "not_stated": ["cgi", "cli", "8.1", "backport"]
+    },
+    "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp": {
+      "cve": "CVE-2026-109619",
+      "ranges": ["< 8.2.35", "< 8.3.36", "< 8.4.27", "< 8.5.12"],
+      "fixed": ["8.2.35", "8.3.36", "8.4.27", "8.5.12"],
+      "sapi": {
+        "mod_php": "The fatal backtrace path has confirmed RCE against mod_php.",
+        "fpm": "FPM is conditionally exposed when nginx",
+        "frankenphp": "was not established in the default configuration of FrankenPHP",
+        "lsapi": "LSAPI can apply special environment INI values early and is a conditional candidate."
+      },
+      "mitigations_partial": ["fatal_error_backtraces", "session.upload_progress.enabled", "pm.max_requests"],
+      "complete_fix_phrase": "is the only reliable mitigation",
+      "no_generic_config_fix_phrase": "There is no complete generic configuration mitigation",
+      "not_stated": ["cgi", "cli", "8.1", "backport"]
+    },
+    "https://www.php.net/archive/2026.php": {
+      "backport_phrase": "minimal source-backports for PHP 7.4, PHP 8.0, and PHP 8.1"
+    }
+  }
+}

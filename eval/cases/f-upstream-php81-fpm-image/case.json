@@ -3,6 +3,10 @@
   "description": "The official upstream php:8.1-fpm image. PHP is compiled into the image, not installed from Debian, so no dpkg entry for it exists and no distro backport applies. Upstream shipped no 8.1 release and 8.1 is EOL. The mirror image of case (a): same branch, opposite verdict.",
   "stack": "Official php:8.1-fpm Docker image behind nginx",
   "cve": "CVE-2026-109619",
+  "cves": [
+    "CVE-2026-109618",
+    "CVE-2026-109619"
+  ],
   "target": "CVE-2026-109619",
   "sources": [
     "https://www.php.net/archive/2026.php"

@@ -22,7 +22,11 @@ import {
   type Verdict,
 } from "../lib/agent";
 import { baselineVerdict, scannerVersion } from "../lib/baseline";
-import { chunkText, flattenDigest, focusOn, renderDigest, verifyItems, type AdvisoryDigest } from "../lib/digest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+import { chunkText, digestAdvisory, flattenDigest, focusOn, parseGhsa, renderDigest, verifyItems, type AdvisoryDigest } from "../lib/digest";
+import { scoreDigest } from "../lib/recall";
 import { callModel, chat, estimateRequest, llmConfig, planWait, resetBudget, type ChatMessage } from "../lib/llm";
 import { parse_stack } from "../lib/tools";
 
@@ -132,6 +136,11 @@ await test("the client posts to {base}/chat/completions, not an SDK-mangled path
  * Digest: only what can be quoted survives
  * ================================================================== */
 
+const digestOf = (over: Partial<AdvisoryDigest>): AdvisoryDigest => ({
+  url: "u", focus: [], title: "t", cve: null, ghsa: null, structured: null, items: [],
+  dropped: 0, droppedQuotes: [], chunks: 1, resplits: 0, model: "m", ...over,
+});
+
 const PAGE = `Who is at risk: all PHP installations serving web requests. We consider the risk highest for mod_php, with a demonstrated exploit where an unauthenticated request can trigger the attack before any application code runs.
 
 FPM is conditionally exposed when nginx, Apache mod_proxy_fcgi or another frontend sends PHP_VALUE/PHP_ADMIN_VALUE parameters.
@@ -176,7 +185,19 @@ await test("anti-mitigations and backports are kept only when the quote names th
     ],
   });
   const { kept } = verifyItems(items, PAGE);
-  assert.deepEqual(kept.map((i) => i.setting ?? i.branches?.join()).sort(), ["7.4,8.0,8.1", "RLIMIT_AS"]);
+  // A sentence naming two limits becomes one item per limit, whatever the model labelled it.
+  assert.deepEqual(kept.map((i) => i.setting ?? i.branches?.join()).sort(), ["7.4,8.0,8.1", "RLIMIT_AS", "RLIMIT_DATA"]);
+  const unbacked = flattenDigest({ anti_mitigations: [{ setting: "RLIMIT_NOFILE", quote: "Use a container or cgroup limit as an availability boundary." }] });
+  assert.equal(verifyItems(unbacked, PAGE).kept.length, 0, "a setting its quote does not name is dropped");
+});
+
+await test("a SAPI item whose quote does not name that SAPI is dropped", () => {
+  const items = flattenDigest({
+    sapi: [{ sapi: "cgi", wording: "conditionally exposed", quote: "FPM is conditionally exposed when nginx, Apache mod_proxy_fcgi or another frontend sends PHP_VALUE/PHP_ADMIN_VALUE parameters." }],
+  });
+  const { kept, droppedQuotes } = verifyItems(items, PAGE);
+  assert.equal(kept.length, 0);
+  assert.equal(droppedQuotes.length, 1, "dropped quotes are kept for inspection");
 });
 
 await test("focusOn narrows a news archive to the paragraphs about this CVE", () => {
@@ -193,19 +214,18 @@ await test("chunkText keeps every chunk within size", () => {
   assert.ok(chunks.every((c) => c.length <= 3_000));
 });
 
-await test("renderDigest never shortens a quote, and lean drops notes and ranges", () => {
+await test("renderDigest never shortens a quote, and can omit notes or shared fields", () => {
   const long = "a".repeat(280);
-  const d: AdvisoryDigest = {
-    url: "u", focus: [], title: "t", dropped: 0, chunks: 1, model: "m",
+  const d = digestOf({
     items: [
-      { kind: "mitigation", setting: "memory_limit", value: "-1", quote: long },
-      { kind: "note", point: "p", quote: "a note quote" },
-      { kind: "affected", range: "< 8.4.27", quote: "Affected < 8.4.27" },
+      { kind: "mitigation", origin: "prose", setting: "memory_limit", value: "-1", quote: long },
+      { kind: "note", origin: "prose", point: "p", quote: "a note quote" },
+      { kind: "affected", origin: "structured", range: "< 8.4.27", quote: "Affected versions < 8.4.27" },
     ],
-  };
+  });
   assert.ok(renderDigest(d).includes(long));
-  assert.ok(!renderDigest(d, true).includes("a note quote"));
-  assert.ok(!renderDigest(d, true).includes("Affected < 8.4.27"));
+  assert.ok(!renderDigest(d, { lean: true }).includes("a note quote"), "lean drops notes");
+  assert.ok(!renderDigest(d, { omitStructured: true }).includes("Affected versions < 8.4.27"), "shared fields can be rendered once elsewhere");
 });
 
 /* ================================================================== *
@@ -268,7 +288,7 @@ await test("a stack that sets RLIMIT_AS gets a cited warning", () => {
   const p = parse_stack({ Dockerfile: "FROM php:8.1-fpm\nRUN ulimit -v 2097152" });
   assert.ok(p.ok);
   const ledger = emptyLedger(p.facts);
-  const digest: AdvisoryDigest = { url: ANNOUNCE, focus: [], title: "t", dropped: 0, chunks: 1, model: "m", items: [{ kind: "anti_mitigation", setting: "RLIMIT_AS", quote: RLIMIT_QUOTE }] };
+  const digest = digestOf({ url: ANNOUNCE, items: [{ kind: "anti_mitigation", origin: "prose", setting: "RLIMIT_AS", quote: RLIMIT_QUOTE }] });
   const out = annotate(reportWith([]), ledger, [digest]);
   assert.equal(out.warnings?.length, 1);
   assert.equal(out.warnings?.[0].setting, "RLIMIT_AS");
@@ -293,6 +313,136 @@ await test("a backport claim cited to the GHSA is flagged; the same quote cited 
 
 await test("AFFECTED_MITIGATED is shown as \"Affected, exposure reduced\"", () => {
   assert.equal(VERDICT_LABELS.AFFECTED_MITIGATED, "Affected, exposure reduced");
+});
+
+/* ================================================================== *
+ * GHSA fields in code, and the digest end to end (stubbed page and model)
+ * ================================================================== */
+
+const GHSA_URL = "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w";
+const PROSE = [
+  "Summary of the issue. PHP uses longjmp() for out-of-memory errors to exit the current context and abort handling of the request, which can leave request memory reachable before it is initialized.",
+  "Susceptibility. Apache mod_php unconditionally invokes the request shutdown procedure, even when request startup has failed. This makes mod_php the most exposed SAPI by a wide margin in every configuration we examined.",
+  "FPM exits the child when request startup fails. Source analysis therefore supports FPM as a susceptible, though no complete FPM exploit has been demonstrated for this SAPI.",
+  "Workarounds. Updating to a PHP release containing the patch to this vulnerability is the only complete mitigation. Setting and enforcing memory_limit=-1 administratively is the primary configuration mitigation.",
+  "Do not use RLIMIT_AS or RLIMIT_DATA, as these will cause mmap() to fail once the memory limit is reached and push allocation failures into the vulnerable path.",
+  "Further notes about multipart parsing, post_max_size and frontend limits follow here, padding the prose so that it is long enough to be split in half when a reply is cut off by the output cap.",
+  "More padding text describing allocator behaviour, build differences, extension interactions and frontend behaviour so that the excerpt comfortably exceeds the minimum split size used by the digest.",
+  "Final paragraph of prose with yet more detail on exploit portability, reliability and the conditions under which worker processes are recycled between requests in common deployments.",
+  "Closing remarks: administrators should prioritise patching over configuration changes, and treat every configuration measure as a reduction of exposure rather than a fix.",
+];
+const GHSA_HTML = `<html><body>${[
+  "RCE via OOM corruption", "Critical", "published", "GHSA-w8hw-w9fx-j79w", "Package", "php-src", "Affected versions",
+  "&lt; 8.2.35", "&lt; 8.3.36", "&lt; 8.4.27", "&lt; 8.5.12", "Patched versions", "8.2.35", "8.3.36", "8.4.27", "8.5.12",
+  "Description", ...PROSE, "Severity", "Critical", "9.2", "CVE ID", "CVE-2026-109618", "Weaknesses", "CWE-416",
+].map((l) => `<p>${l}</p>`).join("")}</body></html>`;
+
+await test("parseGhsa reads affected, patched and the CVE id from the page, and cuts the prose", async () => {
+  const { fetch_advisory } = await import("../lib/tools");
+  stubFetch(() => new Response(GHSA_HTML, { status: 200, headers: { "content-type": "text/html" } }));
+  const page = await fetch_advisory(GHSA_URL);
+  globalThis.fetch = realFetch;
+  assert.ok(page.ok);
+  const g = page.ok ? parseGhsa(page.text) : null;
+  assert.ok(g);
+  assert.deepEqual(g.affected, ["< 8.2.35", "< 8.3.36", "< 8.4.27", "< 8.5.12"]);
+  assert.deepEqual(g.patched, ["8.2.35", "8.3.36", "8.4.27", "8.5.12"]);
+  assert.equal(g.cve, "CVE-2026-109618");
+  assert.equal(g.ghsa, "GHSA-w8hw-w9fx-j79w");
+  assert.ok(g.prose.includes("Apache mod_php unconditionally") && !g.prose.includes("CWE-416"), "prose stops before Severity");
+  assert.equal(parseGhsa("Just some page\nwith no advisory fields"), null);
+});
+
+await test("digest: fields in code, prose verified, a cut-off reply is split not enlarged, then cached", async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), "fw-digest-"));
+  process.env.FIRSTWATCH_CACHE_DIR = cacheDir;
+  resetBudget();
+  let modelCalls = 0;
+  const caps: number[] = [];
+  const reply = JSON.stringify({
+    sapi: [
+      { sapi: "mod_php", wording: "unconditionally invokes", quote: "Apache mod_php unconditionally invokes the request shutdown procedure, even when request startup has failed." },
+      { sapi: "cgi", wording: "susceptible", quote: "Source analysis therefore supports FPM as a susceptible, though no complete FPM exploit has been demonstrated for this SAPI." },
+    ],
+    anti_mitigations: [{ setting: "RLIMIT_AS", quote: "Do not use RLIMIT_AS or RLIMIT_DATA, as these will cause mmap() to fail once the memory limit is reached and push allocation failures into the vulnerable path." }],
+  });
+  stubFetch((url, init) => {
+    if (url.startsWith("https://github.com/")) return new Response(GHSA_HTML, { status: 200, headers: { "content-type": "text/html" } });
+    modelCalls++;
+    caps.push((JSON.parse(String(init?.body)) as { max_completion_tokens: number }).max_completion_tokens);
+    const cut = modelCalls === 1;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: cut ? '{"sapi":[{"sapi":"mod' : reply }, finish_reason: cut ? "length" : "stop" }],
+      usage: { prompt_tokens: 900, completion_tokens: 200, total_tokens: 1100 },
+    }), { status: 200 });
+  });
+  try {
+    const run = async () => {
+      const it = digestAdvisory(cfg(), GHSA_URL);
+      let step = await it.next();
+      while (!step.done) step = await it.next();
+      return step.value;
+    };
+    const first = await run();
+    assert.ok(first.ok);
+    if (!first.ok) return;
+    const d = first.digest;
+    assert.equal(d.resplits, 1, "the cut-off chunk was split once");
+    assert.equal(modelCalls, 3, "one cut-off reply, then two halves");
+    assert.ok(caps.every((c) => c === caps[0]), "the output cap never grew");
+    assert.equal(d.cve, "CVE-2026-109618");
+    assert.equal(d.items.filter((i) => i.kind === "fixed" && i.origin === "structured").length, 4);
+    assert.equal(d.items.filter((i) => i.kind === "affected" && i.origin === "structured").length, 4);
+    assert.deepEqual(d.items.filter((i) => i.kind === "sapi").map((i) => i.sapi), ["mod_php"], "the mislabelled cgi item is gone");
+    assert.deepEqual(d.items.filter((i) => i.kind === "anti_mitigation").map((i) => i.setting).sort(), ["RLIMIT_AS", "RLIMIT_DATA"]);
+    const again = await run();
+    assert.ok(again.ok && again.cached, "second read comes from the cache");
+    assert.equal(modelCalls, 3, "and costs nothing");
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.FIRSTWATCH_CACHE_DIR;
+    rmSync(cacheDir, { recursive: true, force: true });
+    resetBudget();
+  }
+});
+
+await test("scoreDigest counts what survived and flags not-stated facts", () => {
+  const d = digestOf({
+    url: GHSA_URL, cve: "CVE-2026-109618",
+    items: [
+      { kind: "affected", origin: "structured", range: "< 8.4.27", quote: "Affected versions < 8.4.27" },
+      { kind: "fixed", origin: "structured", fixed_version: "8.4.27", quote: "Patched versions 8.4.27" },
+      { kind: "sapi", origin: "prose", sapi: "fpm", wording: "susceptible", quote: "Source analysis therefore supports FPM as a susceptible, though no complete FPM exploit has been demonstrated for this SAPI." },
+      { kind: "anti_mitigation", origin: "prose", setting: "RLIMIT_AS", quote: "Do not use RLIMIT_AS or RLIMIT_DATA, as these will cause mmap() to fail" },
+      { kind: "note", origin: "prose", point: "8.1 gets backports", quote: "Updating is the only complete mitigation." },
+    ],
+  });
+  const r = scoreDigest(d, {
+    cve: "CVE-2026-109618", ranges: ["< 8.2.35", "< 8.4.27"], fixed: ["8.4.27"],
+    sapi: { fpm: "no complete FPM exploit has been demonstrated", mod_php: "Apache mod_php unconditionally invokes" },
+    anti_mitigations: ["RLIMIT_AS", "RLIMIT_DATA"], not_stated: ["8.1", "backport"],
+  });
+  assert.deepEqual(r.byCategory.ranges, { found: 1, total: 2 });
+  assert.deepEqual(r.byCategory.sapi, { found: 1, total: 2 });
+  assert.deepEqual(r.byCategory.anti_mitigations, { found: 2, total: 2 }, "both limits are named in the one quote");
+  assert.equal(r.violations.length, 2, "the note attributes 8.1 and backports to a GHSA");
+});
+
+await test("annotate states, with a citation to each, that both CVEs share their patched versions", () => {
+  const ghsa = (cve: string, url: string, id: string) =>
+    digestOf({
+      url, cve, ghsa: id,
+      structured: { ghsa: id, cve, title: "", affected: ["< 8.4.27"], patched: ["8.2.35", "8.3.36", "8.4.27", "8.5.12"], affectedQuote: "Affected versions < 8.4.27", patchedQuote: "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12", cveQuote: `CVE ID ${cve}` },
+    });
+  const out = annotate(reportWith([]), emptyLedger(), [
+    ghsa("CVE-2026-109618", GHSA, "GHSA-w8hw-w9fx-j79w"),
+    ghsa("CVE-2026-109619", "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp", "GHSA-6wmf-4rv5-p3rp"),
+  ]);
+  assert.equal(out.fixed_versions_identical, true);
+  assert.equal(out.fixed_versions?.length, 2);
+  assert.deepEqual(out.fixed_versions?.map((f) => f.source.split("/").pop()), ["GHSA-w8hw-w9fx-j79w", "GHSA-6wmf-4rv5-p3rp"]);
+  assert.ok(out.fixed_versions?.every((f) => f.quote === "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12"));
+  assert.match(out.summary, /CVE-2026-109618 \(GHSA-w8hw-w9fx-j79w\) and CVE-2026-109619 \(GHSA-6wmf-4rv5-p3rp\) list identical patched versions/);
 });
 
 /* --- report ------------------------------------------------------- */

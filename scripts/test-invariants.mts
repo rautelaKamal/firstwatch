@@ -476,6 +476,86 @@ test("version_in_range (extra): refuses a distro version instead of comparing it
   assert.equal(version_in_range("8.1.33", "< 8.2.35").ok, true);
 });
 
+/* ================================================================== *
+ * Two CVEs in one disclosure: evidence for one never clears the other
+ * ================================================================== */
+
+const CVE_A = "CVE-2026-109618";
+const CVE_B = "CVE-2026-109619";
+function osvFor(ledger: Ledger, cve: string, ecosystem: string, pkg: string, version: string, status: "fixed" | "affected") {
+  ledger.distro.push({ cve, ecosystem, package: pkg, sourcePackage: sourcePackageOf(pkg), version, status, fixedVersion: null });
+}
+const jammyBoth = () => {
+  const ledger = emptyLedger(factsOf("a-ubuntu2204-patched"));
+  ledger.cves = [CVE_A, CVE_B];
+  return ledger;
+};
+
+test("two CVEs: packages cleared for one CVE only cannot come back NOT_AFFECTED", () => {
+  const ledger = jammyBoth();
+  for (const p of JAMMY_ENGINE) osvFor(ledger, CVE_A, "Ubuntu:22.04:LTS", p, JAMMY, "fixed");
+  const { report: out, log } = enforceInvariants(report(JAMMY_ENGINE.map((p) => finding(p, JAMMY, "NOT_AFFECTED", { cve: CVE_A }))), ledger);
+  assert.equal(out.overall, "UNVERIFIED");
+  for (const p of JAMMY_ENGINE) {
+    const missing = out.findings.find((f) => f.package === p && f.cve === CVE_B);
+    assert.ok(missing, `${p} needs a finding for ${CVE_B}`);
+    assert.equal(missing.verdict, "UNVERIFIED");
+    assert.ok(log.some((l) => l.package === p && l.invariant === "I6" && l.why.includes(CVE_B)));
+  }
+});
+
+test("two CVEs: a fixed row for one CVE cannot clear a finding about the other", () => {
+  const ledger = jammyBoth();
+  osvFor(ledger, CVE_A, "Ubuntu:22.04:LTS", "libapache2-mod-php8.1", JAMMY, "fixed");
+  const { report: out, log } = enforceInvariants(report([finding("libapache2-mod-php8.1", JAMMY, "NOT_AFFECTED", { cve: CVE_B })]), ledger);
+  assert.notEqual(verdictOf(out, "libapache2-mod-php8.1"), "NOT_AFFECTED");
+  assert.ok(logged(log, "libapache2-mod-php8.1", "I1"));
+});
+
+test("two CVEs: a range read only in one CVE's advisory cannot clear the other CVE", () => {
+  const ledger = emptyLedger(upstream("8.4.27"));
+  ledger.cves = [CVE_A, CVE_B];
+  // Only GHSA-w8hw (CVE_A) was read. Nothing about CVE_B states this range.
+  ledger.fetched.push({ source: "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w", text: `>= 8.4.0 and < 8.4.27 ${CVE_A}`, cve: CVE_A });
+  ledger.ranges.push({ version: "8.4.27", range: ">= 8.4.0 and < 8.4.27", inRange: false });
+  const { report: out } = enforceInvariants(
+    report([
+      finding("php", "8.4.27", "NOT_AFFECTED", { cve: CVE_A, version_source: "php -v", decided_by: { method: "version_in_range", detail: "" } }),
+      finding("php", "8.4.27", "NOT_AFFECTED", { cve: CVE_B, version_source: "php -v", decided_by: { method: "version_in_range", detail: "" } }),
+    ]),
+    ledger,
+  );
+  assert.equal(out.findings.find((f) => f.cve === CVE_A)?.verdict, "NOT_AFFECTED");
+  assert.notEqual(out.findings.find((f) => f.cve === CVE_B)?.verdict, "NOT_AFFECTED");
+});
+
+test("two CVEs: findings about a CVE out of scope, or naming none, cannot clear (I11)", () => {
+  const ledger = jammyBoth();
+  for (const c of [CVE_A, CVE_B, "CVE-2026-999999"]) osvFor(ledger, c, "Ubuntu:22.04:LTS", "php8.1-cli", JAMMY, "fixed");
+  const { report: out, log } = enforceInvariants(
+    report([finding("php8.1-cli", JAMMY, "NOT_AFFECTED", { cve: "CVE-2026-999999" }), finding("libapache2-mod-php8.1", JAMMY, "NOT_AFFECTED")]),
+    ledger,
+  );
+  assert.ok(log.some((l) => l.invariant === "I11" && l.why.includes("not one of the CVEs")));
+  assert.ok(log.some((l) => l.invariant === "I11" && l.why.includes("names no CVE")));
+  assert.notEqual(out.overall, "NOT_AFFECTED");
+});
+
+test("two CVEs: cleared for both is NOT_AFFECTED, each allow_reason naming its CVE", () => {
+  const ledger = jammyBoth();
+  const findings = [];
+  for (const c of [CVE_A, CVE_B]) {
+    for (const p of JAMMY_ENGINE) {
+      osvFor(ledger, c, "Ubuntu:22.04:LTS", p, JAMMY, "fixed");
+      findings.push(finding(p, JAMMY, "NOT_AFFECTED", { cve: c }));
+    }
+  }
+  const { report: out, log } = enforceInvariants(report(findings), ledger);
+  assert.equal(out.overall, "NOT_AFFECTED");
+  assert.equal(log.length, 0);
+  for (const f of out.findings) assert.ok(f.allow_reason?.includes(`for ${f.cve}`), `${f.package} ${f.cve}`);
+});
+
 /* --- report ------------------------------------------------------- */
 let failed = 0;
 for (const r of results) {

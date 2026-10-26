@@ -32,13 +32,14 @@ const files = dir
   ? Object.fromEntries(readdirSync(dir).filter((f) => f !== "case.json" && statSync(join(dir, f)).isFile()).map((f) => [f, readFileSync(join(dir, f), "utf8")]))
   : undefined;
 const spec = dir && existsSync(join(dir, "case.json"))
-  ? (JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as { stack?: string; cve?: string; target?: string; sources?: string[] })
+  ? (JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as { stack?: string; cve?: string; cves?: string[]; target?: string; sources?: string[] })
   : {};
 
 const stack = flag("--stack", "-s") ?? spec.stack ?? "";
 const target = flag("--target", "-t") ?? spec.target;
 const cve = flag("--cve") ?? spec.cve;
 const sources = flags("--source").length ? flags("--source") : (spec.sources ?? []);
+const cves = flags("--cve").length > 1 ? flags("--cve") : (spec.cves ?? (cve ? [cve] : []));
 const model = flag("--model", "-m");
 const max = Number(flag("--max", "-n") ?? MAX_ITERATIONS);
 const asJson = has("--json");
@@ -116,7 +117,7 @@ function show(e: AgentEvent) {
         const r = e.report;
         console.log(`${colour(r.overall)(bold(VERDICT_LABELS[r.overall]))}  ${r.summary}`);
         for (const f of r.findings) {
-          console.log(`\n${bold(f.package)} ${f.installed_version} ${dim(`(${f.version_source})`)}  ${colour(f.verdict)(VERDICT_LABELS[f.verdict])}`);
+          console.log(`\n${bold(f.package)}${f.cve ? ` ${dim(f.cve)}` : ""} ${f.installed_version} ${dim(`(${f.version_source})`)}  ${colour(f.verdict)(VERDICT_LABELS[f.verdict])}`);
           console.log(`  ${dim(`decided by ${f.decided_by?.method}: ${f.decided_by?.detail ?? ""}`)}`);
           if (f.allow_reason) console.log(`  ${dim(`allowed: ${f.allow_reason}`)}`);
           for (const en of f.enforcement ?? []) console.log(`  ${yellow(`downgraded by ${en.invariant}`)} ${en.from} -> ${en.to}: ${dim(en.why)}`);
@@ -138,12 +139,12 @@ function show(e: AgentEvent) {
 }
 
 let failed = false;
-for await (const event of runAgent({ stack, files, target, cve, sources, model, maxIterations: max })) {
+for await (const event of runAgent({ stack, files, target, cve, cves, sources, model, maxIterations: max })) {
   show(event);
   if (event.type === "error") failed = true;
 }
 if (has("--baseline") && cve) {
-  const b = await runBaseline({ files, cve, target });
+  const b = await runBaseline({ files, cve, cves, target });
   console.log(`\n${dim("scanner baseline:")} ${VERDICT_LABELS[b.report.overall]} ${dim(`from "${b.version ?? "nothing"}"`)}`);
 }
 process.exit(failed ? 1 : 0);

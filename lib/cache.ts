@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { fetch_advisory, fetch_cve, type Advisory, type CveRecord, type Fail } from "./tools";
@@ -34,6 +34,17 @@ export function cachePut<T>(key: string, value: T): void {
     writeFileSync(join(dir(), `${key}.json`), JSON.stringify({ savedAt: Date.now(), value }));
   } catch {
     /* no cache, no harm */
+  }
+}
+
+/** Every cached value whose key starts with `prefix`. */
+export function cacheEntries<T>(prefix: string): T[] {
+  try {
+    return readdirSync(dir())
+      .filter((f) => f.startsWith(prefix) && f.endsWith(".json"))
+      .map((f) => (JSON.parse(readFileSync(join(dir(), f), "utf8")) as { value: T }).value);
+  } catch {
+    return [];
   }
 }
 

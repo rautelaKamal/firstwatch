@@ -92,6 +92,8 @@ export type Citation = {
 export type PackageFinding = {
   /** The exact installed package, e.g. php8.4-fpm, libapache2-mod-php8.1, or php for an upstream build. */
   package: string;
+  /** The CVE this verdict is about. A disclosure with two CVEs gets one finding per package per CVE. */
+  cve?: string;
   installed_version: string;
   version_source: "dpkg" | "php -v" | "image-tag" | "apt-pin" | "unknown";
   sapi: string | null;
@@ -126,6 +128,12 @@ export type FirstWatchReport = {
   /** Written by code: citations whose quote was not found in the source they name. */
   citation_issues?: { package: string; claim: string; source: string }[];
   enforcement_log?: { package: string; invariant: string; from: Verdict; to: Verdict; why: string }[];
+  /** Written by code: the CVEs under assessment. */
+  cves?: string[];
+  /** Written by code: each advisory's patched versions, parsed from its fields, with the quote and page. */
+  fixed_versions?: { cve: string; ghsa: string | null; patched: string[]; quote: string; source: string }[];
+  /** Written by code: true when every advisory lists the same patched versions; null with fewer than two. */
+  fixed_versions_identical?: boolean | null;
 };
 
 /** The same contract as JSON Schema, for the prompt, the UI and validation. */
@@ -264,12 +272,12 @@ export const REPORT_JSON_SCHEMA = {
 
 export const SYSTEM_PROMPT = `You are FirstWatch, a vulnerability triage analyst. A version scanner read one version string and said "affected". That is wrong both ways: distributions backport fixes without changing the upstream number (false alarm), and split packages can leave php8.x-fpm unpatched behind a patched php8.x-cli (false safety). You judge each installed engine package on its own exact version.
 
-You are given the parsed stack, the NVD ranges, and digests of the advisory and the vendor announcement, each quote already checked against its page.
+You are given the CVEs under assessment, the parsed stack, the NVD ranges, and digests of each CVE's advisory and of the vendor announcement, each quote already checked against its page.
 
 Work:
-1. For each engine package (php8.x-cli, -fpm, -cgi, -phpdbg, libapache2-mod-php8.x, libphp8.x-embed), call check_distro_fix with that package's own exact version, all in one turn.
+1. For each engine package (php8.x-cli, -fpm, -cgi, -phpdbg, libapache2-mod-php8.x, libphp8.x-embed), call check_distro_fix once with that package's own exact version and every CVE under assessment, comma-separated. Make all those calls in one turn.
 2. For an upstream build (one package named php, no distro packages), call version_in_range on the NVD ranges, and check_eol for its branch.
-3. Then reply with the report.
+3. Then reply with the report: one finding per engine package per CVE, each naming its cve.
 
 Rules:
 1. Version claims come from tool results, never from your own arithmetic.
@@ -286,8 +294,8 @@ Your verdicts are re-checked in code and downgraded when unsupported.
 
 Reply with JSON only, no prose and no code fences:
 {"schema_version":2,"cve":"","target":"","assessed_at":"","overall":"","summary":"",
-"findings":[{"package":"","installed_version":"","version_source":"dpkg|php -v|image-tag|apt-pin|unknown","sapi":"","verdict":"AFFECTED|AFFECTED_MITIGATED|NOT_AFFECTED|UNVERIFIED","decided_by":{"method":"check_distro_fix|version_in_range|none","detail":""},"exploitation_confidence":"confirmed|presumed|unaddressed|not-applicable","severity":{"cvss":"","score":0,"note":""},"citations":[{"claim":"","quote":"","source":""}],"mitigations":[{"setting":"","value":"","quote":"","source":""}],"eol":null,"remediation":[{"priority":1,"type":"patch|config|isolate|verify","action":"","detail":""}],"unverified":[{"missing":"","why_it_matters":"","how_to_get_it":""}]}]}
-One finding per engine package; extension packages such as php8.x-common need none. eol is null or {"branch","is_eol","upstream_release_exists","note"}. Keep every string short.`;
+"findings":[{"package":"","cve":"","installed_version":"","version_source":"dpkg|php -v|image-tag|apt-pin|unknown","sapi":"","verdict":"AFFECTED|AFFECTED_MITIGATED|NOT_AFFECTED|UNVERIFIED","decided_by":{"method":"check_distro_fix|version_in_range|none","detail":""},"exploitation_confidence":"confirmed|presumed|unaddressed|not-applicable","severity":{"cvss":"","score":0,"note":""},"citations":[{"claim":"","quote":"","source":""}],"mitigations":[{"setting":"","value":"","quote":"","source":""}],"eol":null,"remediation":[{"priority":1,"type":"patch|config|isolate|verify","action":"","detail":""}],"unverified":[{"missing":"","why_it_matters":"","how_to_get_it":""}]}]}
+One finding per engine package per CVE; extension packages such as php8.x-common need none. eol is null or {"branch","is_eol","upstream_release_exists","note"}. Keep every string short.`;
 
 /* ------------------------------------------------------------------ *
  * Tool declarations: five tools, terse, because they ride on every request
@@ -310,8 +318,8 @@ const tool = (name: string, description: string, props: Record<string, string>):
 export const TOOL_SCHEMAS: ToolSchema[] = [
   tool(
     "check_distro_fix",
-    "OSV verdict for one exact distro package version: fixed, affected or unknown, with the distro's fixed version. One call per engine package.",
-    { cve: "CVE id", ecosystem: "e.g. Ubuntu:22.04:LTS, Debian:12", package: "exact binary package, e.g. php8.1-fpm", version: "that package's installed version" },
+    "OSV verdict for one exact distro package version against each CVE given: fixed, affected or unknown, with the distro's fixed version. One call per engine package.",
+    { cve: "every CVE under assessment, comma-separated", ecosystem: "e.g. Ubuntu:22.04:LTS, Debian:12", package: "exact binary package, e.g. php8.1-fpm", version: "that package's installed version" },
   ),
   tool("version_in_range", 'Is an upstream version inside an upstream range such as ">= 8.4.0 and < 8.4.27"? Refuses distro versions.', {
     version: "upstream version",
@@ -344,10 +352,12 @@ export type Ledger = {
   facts: Fact[];
   /** Every page and record fetched this run. A range that cannot be found in
    *  here was not read anywhere, so it cannot be used to clear a package. */
-  fetched: { source: string; text: string }[];
+  fetched: { source: string; text: string; cve?: string | null }[];
+  /** The CVEs under assessment. Every engine package needs a verdict for each. */
+  cves: string[];
 };
 
-export const emptyLedger = (facts: Fact[] = []): Ledger => ({ distro: [], ranges: [], facts, fetched: [] });
+export const emptyLedger = (facts: Fact[] = []): Ledger => ({ distro: [], ranges: [], facts, fetched: [], cves: [] });
 
 /* ------------------------------------------------------------------ *
  * Invariants, enforced in code after the model answers
@@ -359,11 +369,12 @@ export const INVARIANTS = {
   I3: "A verdict more reassuring than UNVERIFIED requires runtime evidence of this package's own installed version.",
   I4: "An inexact version cannot decide a range that splits inside its own branch.",
   I5: "A package's verdict must rest on that package's own installed version, never on another package's.",
-  I6: "Every engine-carrying PHP package in the stack needs a verdict. A package nobody assessed is not a clean package.",
+  I6: "Every engine-carrying PHP package in the stack needs a verdict for every CVE under assessment.",
   I7: "A range may only clear a package if its boundary versions appear in something actually fetched this run.",
   I8: "A range clears a version only if no range places it inside, and the clearing range covers the version's own branch.",
   I9: "A finding must name a package that is in the parsed inventory.",
   I10: "A mitigation counts only if its quote appears in a fetched advisory, names the setting, and the stack actually sets it.",
+  I11: "A finding must be about one of the CVEs under assessment, and evidence for one CVE never clears another.",
 } as const;
 
 /** Version-like tokens in a range, without swallowing trailing punctuation. */
@@ -433,30 +444,39 @@ export function enforceInvariants(
   const anyRuntime = ledger.facts.some((f) => f.kind === "runtime");
 
   // ---- what was actually read this run ----
-  const fetchedProse = ledger.fetched.map((src) => ({ source: src.source, text: normaliseProse(src.text) }));
-  /** The one fetched source that contains every boundary of this range, if any. */
-  const provenanceOf = (range: string) => {
+  const scope = (ledger.cves ?? []).map((c) => c.toUpperCase());
+  /** Does a fetched source speak to this CVE? A tagged source by its tag, a multi-CVE page by naming it. */
+  const appliesTo = (src: { cve?: string | null; text: string }, cve?: string) =>
+    !cve || (src.cve ? src.cve.toUpperCase() === cve : src.text.toUpperCase().includes(cve));
+  const fetchedProse = ledger.fetched.map((src) => ({ source: src.source, cve: src.cve ?? null, text: normaliseProse(src.text) }));
+  /** The one fetched source, about this CVE, that contains every boundary of this range. */
+  const provenanceOf = (range: string, cve?: string) => {
     const bounds = range.match(BOUNDARY_VERSIONS) ?? [];
     if (!bounds.length) return null;
-    return ledger.fetched.find((src) => bounds.every((b) => appearsVerbatim(b, src.text))) ?? null;
+    return ledger.fetched.find((src) => appliesTo(src, cve) && bounds.every((b) => appearsVerbatim(b, src.text))) ?? null;
   };
-  const quoteSourceOf = (quote: string) => {
+  const quoteSourceOf = (quote: string, cve?: string) => {
     const q = normaliseProse(quote);
     if (q.length < 20) return null; // a fragment like "memory_limit" proves nothing
-    return fetchedProse.find((src) => src.text.includes(q)) ?? null;
+    return fetchedProse.find((src) => appliesTo(src, cve) && src.text.includes(q)) ?? null;
   };
 
   const findings = report.findings.map((finding) => {
     const pkg = str(finding.package).trim();
     const key = pkg.toLowerCase();
     const version = str(finding.installed_version).trim();
+    const cve = finding.cve ? str(finding.cve).trim().toUpperCase() : undefined;
     const source = sourcePackageOf(pkg);
     const enforcement: NonNullable<PackageFinding["enforcement"]> = [];
     const inInventory = inventory.has(key);
 
     // ---- OSV: only a clean fixed row, in this stack's own ecosystem, clears ----
+    // Rows for this CVE only: a fix for one CVE says nothing about another.
     const rows = ledger.distro.filter(
-      (d) => d.version === version && (d.package.toLowerCase() === key || (!!source && d.sourcePackage === source)),
+      (d) =>
+        d.version === version &&
+        (!cve || d.cve.toUpperCase() === cve) &&
+        (d.package.toLowerCase() === key || (!!source && d.sourcePackage === source)),
     );
     const fixedRows = rows.filter((d) => d.status === "fixed");
     const affectedRows = rows.filter((d) => d.status === "affected");
@@ -482,11 +502,11 @@ export function enforceInvariants(
       return r.ok && r.inRange;
     };
     const clearing = ranges.filter((r) => !r.inRange);
-    const validClear = anyIn ? undefined : clearing.find((r) => provenanceOf(r.range) && coversBranch(r.range));
+    const validClear = anyIn ? undefined : clearing.find((r) => provenanceOf(r.range, cve) && coversBranch(r.range));
     const outOfRange = !!validClear;
-    const fabricatedClear = clearing.find((r) => !provenanceOf(r.range));
-    const misdirectedClear = clearing.find((r) => provenanceOf(r.range) && (anyIn || !coversBranch(r.range)));
-    const sourcedIn = ranges.find((r) => r.inRange && provenanceOf(r.range));
+    const fabricatedClear = clearing.find((r) => !provenanceOf(r.range, cve));
+    const misdirectedClear = clearing.find((r) => provenanceOf(r.range, cve) && (anyIn || !coversBranch(r.range)));
+    const sourcedIn = ranges.find((r) => r.inRange && provenanceOf(r.range, cve));
 
     // ---- this package's own installed version, and nothing else ----
     const ownFact = ledger.facts.find(
@@ -505,7 +525,7 @@ export function enforceInvariants(
     const judged = (finding.mitigations ?? []).map((m) => {
       const setting = str(m.setting).trim().toLowerCase();
       const fact = ledger.facts.find((f) => f.field === `ini.${setting}`);
-      const src = quoteSourceOf(str(m.quote));
+      const src = quoteSourceOf(str(m.quote), cve);
       const problem = !src
         ? "its quote does not appear in any advisory fetched this run"
         : !normaliseProse(str(m.quote)).toLowerCase().includes(setting)
@@ -594,6 +614,17 @@ export function enforceInvariants(
       );
     }
 
+    // I11: a verdict must be about a CVE under assessment, and say which.
+    if (scope.length && reassuring() && (!cve || !scope.includes(cve))) {
+      demote(
+        "UNVERIFIED",
+        "I11",
+        cve
+          ? `${cve} is not one of the CVEs under assessment (${scope.join(", ")}).`
+          : `This finding names no CVE, but ${scope.length} are under assessment (${scope.join(", ")}), and a verdict cannot cover a CVE it never names.`,
+      );
+    }
+
     // I5: the version belongs to a sibling package, which is the split-package trap.
     if (!ownFact && borrowedFrom && reassuring()) {
       demote(
@@ -635,13 +666,13 @@ export function enforceInvariants(
     if (verdict === "NOT_AFFECTED" && clearedByOsv && fixedHere) {
       allow_reason = `OSV row: ${fixedHere.ecosystem} ${fixedHere.sourcePackage ?? fixedHere.package} ${fixedHere.version} is fixed${
         fixedHere.fixedVersion ? ` (fixed in ${fixedHere.fixedVersion})` : ""
-      }, in this stack's own ecosystem, with no affected row; ${installed}.`;
+      } for ${fixedHere.cve}, in this stack's own ecosystem, with no affected row; ${installed}.`;
     } else if (verdict === "NOT_AFFECTED" && validClear) {
-      allow_reason = `Range result: ${version} is outside "${validClear.range}", read in ${provenanceOf(validClear.range)?.source}, which covers the ${floor} branch floor, and no range placed it inside; ${installed}.`;
+      allow_reason = `Range result: ${version} is outside "${validClear.range}", read in ${provenanceOf(validClear.range, cve)?.source}, which covers the ${floor} branch floor, and no range placed it inside; ${installed}.`;
     } else if (verdict === "AFFECTED_MITIGATED" && validMitigation) {
       const affectedBy = affectedHere
         ? `OSV row ${affectedHere.ecosystem} ${affectedHere.sourcePackage ?? affectedHere.package} ${affectedHere.version} affected`
-        : `${version} inside "${sourcedIn?.range}", read in ${provenanceOf(sourcedIn?.range ?? "")?.source}`;
+        : `${version} inside "${sourcedIn?.range}", read in ${provenanceOf(sourcedIn?.range ?? "", cve)?.source}`;
       allow_reason = `Affected per ${affectedBy}; mitigated by ${str(validMitigation.m.setting)}=${str(validMitigation.m.value)}, quoted from ${validMitigation.src?.source} and set at ${validMitigation.fact?.file}:${validMitigation.fact?.line}; ${installed}.`;
     } else if (verdict === "AFFECTED") {
       const support = affectedRows[0]
@@ -660,7 +691,8 @@ export function enforceInvariants(
   // I6: coverage. Walk the packages the stack actually has and synthesize a
   // finding for any the model skipped. Silence about a package is not a clean
   // bill of health for it, and it must not be able to leave `overall` clean.
-  const assessed = new Set(findings.map((f) => str(f.package).trim().toLowerCase()));
+  const assessedKey = (name: string, cve?: string) => `${name.trim().toLowerCase()}|${(cve ?? "").toUpperCase()}`;
+  const assessed = new Set(findings.map((f) => assessedKey(str(f.package), scope.length ? str(f.cve) : undefined)));
   const byName = new Map<string, { version: string; kind: Fact["kind"]; file: string; where: string }[]>();
   for (const f of ledger.facts) {
     const m = f.field.match(/^pkg\.(.+)$/);
@@ -673,16 +705,21 @@ export function enforceInvariants(
   const synthesized: PackageFinding[] = [];
   const covered: string[] = [];
   for (const [name, seen] of byName) {
-    if (assessed.has(name.toLowerCase())) continue;
+    const targets: (string | undefined)[] = scope.length ? scope : [undefined];
+    const missing = targets.filter((c) => !assessed.has(assessedKey(name, c)));
     if (!carriesEngine(name, distroPhpInstalled)) {
-      covered.push(name);
+      if (missing.length === targets.length) covered.push(name);
       continue;
     }
     const runtime = seen.filter((x) => x.kind === "runtime");
     const use = (runtime.length ? runtime : seen)[0];
-    const why = `${name} ${use.version} is installed according to ${use.where}, but the report contains no finding for it. A package that was not assessed cannot be treated as unaffected.`;
+    for (const cveMissing of missing) {
+    const why = `${name} ${use.version} is installed according to ${use.where}, but the report contains no finding for it${
+      cveMissing ? ` about ${cveMissing}` : ""
+    }. A package that was not assessed cannot be treated as unaffected.`;
     synthesized.push({
       package: name,
+      ...(cveMissing ? { cve: cveMissing } : {}),
       installed_version: use.version,
       version_source: /php-?v/i.test(use.file) ? "php -v" : use.kind === "runtime" ? "dpkg" : "image-tag",
       sapi: null,
@@ -712,6 +749,7 @@ export function enforceInvariants(
       enforcement: [{ invariant: "I6", from: "UNVERIFIED", to: "UNVERIFIED", why }],
     });
     log.push({ package: name, invariant: "I6", from: "UNVERIFIED", to: "UNVERIFIED", why });
+    }
   }
 
   const allFindings = [...findings, ...synthesized];
@@ -758,17 +796,26 @@ export function renderNvd(rec: FoundCve): string {
 async function runTool(name: string, a: Record<string, unknown>, ledger: Ledger): Promise<{ result: unknown; full: string; line: string }> {
   switch (name) {
     case "check_distro_fix": {
-      const r = await check_distro_fix(str(a.cve), str(a.ecosystem), str(a.package), str(a.version));
-      if (!r.ok) return { result: r, full: JSON.stringify(r), line: r.error };
-      ledger.distro.push({
-        cve: r.cve, ecosystem: r.ecosystem, package: r.package, sourcePackage: r.sourcePackage,
-        version: r.version, status: r.status, fixedVersion: r.fixedVersion,
-      });
-      const core = {
-        status: r.status, package: r.package, source: r.sourcePackage, version: r.version,
-        ecosystem: r.ecosystem, fixed_in: r.fixedVersion, ref: r.advisories[0] ?? null,
-      };
-      return { result: r, full: JSON.stringify({ ...core, summary: r.summary }), line: JSON.stringify(core) };
+      const ids = [...new Set(str(a.cve).toUpperCase().split(/[\s,;]+/).filter(Boolean))];
+      if (!ids.length) return { result: { ok: false }, full: "Pass at least one CVE id.", line: "no CVE given" };
+      const rows: Record<string, unknown>[] = [];
+      for (const id of ids) {
+        const r = await check_distro_fix(id, str(a.ecosystem), str(a.package), str(a.version));
+        if (!r.ok) {
+          rows.push({ cve: id, error: r.error });
+          continue;
+        }
+        ledger.distro.push({
+          cve: r.cve, ecosystem: r.ecosystem, package: r.package, sourcePackage: r.sourcePackage,
+          version: r.version, status: r.status, fixedVersion: r.fixedVersion,
+        });
+        rows.push({
+          cve: r.cve, status: r.status, package: r.package, source: r.sourcePackage, version: r.version,
+          ecosystem: r.ecosystem, fixed_in: r.fixedVersion, ref: r.advisories[0] ?? null, summary: r.summary,
+        });
+      }
+      const line = JSON.stringify(rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== "summary"))));
+      return { result: rows, full: JSON.stringify(rows), line };
     }
     case "version_in_range": {
       const r = version_in_range(str(a.version), str(a.range));
@@ -834,16 +881,26 @@ export function fitRequest(
 }
 
 /** The first message: everything code could establish without the model. */
+/** Patched and affected lists that every GHSA digest agrees on, or null. */
+function sharedFields(digests: AdvisoryDigest[]) {
+  const ghsa = digests.filter((d) => d.structured && d.cve);
+  if (ghsa.length < 2) return null;
+  const same = (k: "patched" | "affected") => ghsa.every((d) => JSON.stringify(d.structured![k]) === JSON.stringify(ghsa[0].structured![k]));
+  return same("patched") && same("affected") ? ghsa : null;
+}
+
 function firstMessage(o: {
   target: string;
-  cve: string | null;
+  cves: string[];
   stack: string;
   parsed: StackFacts | null;
-  nvd: FoundCve | null;
+  nvds: FoundCve[];
   digests: AdvisoryDigest[];
   lean: boolean;
 }): string {
-  const out = [`Today is ${new Date().toISOString().slice(0, 10)}. CVE: ${o.cve ?? "unknown"}. Target: ${o.target}.`];
+  const out = [
+    `Today is ${new Date().toISOString().slice(0, 10)}. CVEs under assessment: ${o.cves.join(", ") || "unknown"}. Target: ${o.target}.`,
+  ];
   if (o.stack) out.push(`The engineer says: ${o.stack}`);
   if (o.parsed) {
     const p = o.parsed;
@@ -866,8 +923,18 @@ function firstMessage(o: {
   } else {
     out.push("", "No files were uploaded.");
   }
-  if (o.nvd) out.push("", renderNvd(o.nvd));
-  for (const d of o.digests) out.push("", renderDigest(d, o.lean));
+  for (const nvd of o.nvds) out.push("", renderNvd(nvd));
+  const shared = sharedFields(o.digests);
+  if (shared) {
+    const f = shared[0].structured!;
+    out.push(
+      "",
+      `Every advisory lists the same fields: ${shared.map((d) => `${d.cve} (${d.url})`).join(" and ")}.`,
+      `- Patched: ${f.patched.join(", ")} | "${f.patchedQuote}"`,
+      `- Affected: ${f.affected.join(" | ")} | "${f.affectedQuote}"`,
+    );
+  }
+  for (const d of o.digests) out.push("", renderDigest(d, { lean: o.lean, omitStructured: !!shared && !!d.structured }));
   return out.join("\n");
 }
 
@@ -911,14 +978,38 @@ export function annotate(report: FirstWatchReport, ledger: Ledger, digests: Advi
   const warningNote = warnings.length
     ? ` Warning: ${warnings.map((w) => `${w.setting} is set (${w.where})`).join(", ")}; the advisory says this increases risk.`
     : "";
-  return { ...report, findings, warnings, citation_issues: issues, summary: `${report.summary}${warningNote}` };
+
+  // Each advisory's patched versions come from its own fields, so the comparison
+  // is code, not the model's reading, and each side carries its own quote.
+  const fixed_versions = digests
+    .filter((d) => d.structured && d.cve)
+    .map((d) => ({ cve: d.cve!, ghsa: d.ghsa, patched: d.structured!.patched, quote: d.structured!.patchedQuote, source: d.url }));
+  const identical =
+    fixed_versions.length > 1 ? fixed_versions.every((f) => JSON.stringify(f.patched) === JSON.stringify(fixed_versions[0].patched)) : null;
+  const fixedNote =
+    identical === true
+      ? ` ${fixed_versions.map((f) => `${f.cve} (${f.ghsa ?? f.source})`).join(" and ")} list identical patched versions: ${fixed_versions[0].patched.join(", ")}.`
+      : identical === false
+        ? ` The CVEs have different patched versions: ${fixed_versions.map((f) => `${f.cve}: ${f.patched.join(", ")}`).join("; ")}.`
+        : "";
+
+  return {
+    ...report,
+    findings,
+    warnings,
+    citation_issues: issues,
+    cves: ledger.cves,
+    fixed_versions,
+    fixed_versions_identical: identical,
+    summary: `${report.summary}${fixedNote}${warningNote}`,
+  };
 }
 
 /* ------------------------------------------------------------------ *
  * Validation
  * ------------------------------------------------------------------ */
 
-export function validateReport(value: unknown): { ok: true; report: FirstWatchReport } | { ok: false; errors: string[] } {
+export function validateReport(value: unknown, cves: string[] = []): { ok: true; report: FirstWatchReport } | { ok: false; errors: string[] } {
   const errors: string[] = [];
   const r = value as Record<string, unknown> | null;
   if (!r || typeof r !== "object") return { ok: false, errors: ["the reply was not a JSON object"] };
@@ -941,6 +1032,9 @@ export function validateReport(value: unknown): { ok: true; report: FirstWatchRe
       if (!VERDICTS.includes(g.verdict as Verdict)) errors.push(`${at}.verdict must be one of ${VERDICTS.join(", ")}`);
       for (const key of ["citations", "remediation", "unverified", "mitigations"]) {
         if (!Array.isArray(g[key])) errors.push(`${at}.${key} must be an array`);
+      }
+      if (cves.length > 1 && !cves.includes(str(g.cve).toUpperCase())) {
+        errors.push(`${at}.cve must be one of ${cves.join(", ")}: write one finding per engine package per CVE`);
       }
       if (g.verdict === "UNVERIFIED" && Array.isArray(g.unverified) && !g.unverified.length) {
         errors.push(`${at}.verdict is UNVERIFIED, so unverified must say what is missing`);
@@ -994,6 +1088,8 @@ export type AgentInput = {
   /** An advisory URL or a CVE id. */
   target: string;
   cve?: string;
+  /** Every CVE in the disclosure. Each engine package gets a verdict for each. */
+  cves?: string[];
   /** Companion pages, such as the vendor's announcement, digested alongside the target. */
   sources?: string[];
   model?: string;
@@ -1019,10 +1115,17 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
     return;
   }
   const maxIterations = Math.min(Math.max(input.maxIterations ?? MAX_ITERATIONS, 2), MAX_ITERATIONS);
-  const cve = (input.cve ?? (CVE_RE.test(target) ? target : "")).toUpperCase() || null;
+  const cves = [
+    ...new Set(
+      [...(input.cves ?? []), input.cve, CVE_RE.test(target) ? target : undefined]
+        .filter((c): c is string => !!c && CVE_RE.test(c))
+        .map((c) => c.toUpperCase()),
+    ),
+  ];
   const usage = emptyUsage();
   let digestUsage = emptyUsage();
   const ledger = emptyLedger();
+  ledger.cves = cves;
 
   yield {
     type: "start", model: cfg.model, baseUrl: cfg.baseUrl, target, maxIterations,
@@ -1043,24 +1146,28 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
     }
   }
 
-  // 2. NVD, in code, cached. It is structured already, so no model is needed.
-  let nvd: FoundCve | null = null;
-  if (cve) {
-    const rec = await cachedCve(cve);
+  // 2. NVD for every CVE, in code, cached. Its references name each CVE's own GHSA.
+  const nvds: FoundCve[] = [];
+  const ghsaUrls: string[] = [];
+  for (const id of cves) {
+    const rec = await cachedCve(id);
     if (rec.ok && rec.found) {
-      nvd = rec;
-      ledger.fetched.push({ source: `NVD ${cve}`, text: JSON.stringify(rec) });
-      yield { type: "nvd", id: cve, ranges: phpRanges(rec).length };
+      nvds.push(rec);
+      ledger.fetched.push({ source: `NVD ${id}`, text: JSON.stringify(rec), cve: id });
+      ghsaUrls.push(...rec.references.filter((u) => /github\.com\/[^/]+\/[^/]+\/security\/advisories\/GHSA-/i.test(u)));
+      yield { type: "nvd", id, ranges: phpRanges(rec).length };
     } else {
-      yield { type: "nvd", id: cve, ranges: 0, note: rec.ok ? "NVD has no record yet" : rec.error };
+      yield { type: "nvd", id, ranges: 0, note: rec.ok ? "NVD has no record yet" : rec.error };
     }
   }
 
-  // 3. Digests: the target advisory whole, companion pages narrowed to this disclosure.
-  const focus = [cve, target.match(/GHSA-[\w-]+/i)?.[0]].filter((t): t is string => !!t);
+  // 3. Digests: the target and every CVE's GHSA whole, companion pages narrowed to this disclosure.
+  const ghsaIds = [target, ...ghsaUrls].map((u) => u.match(/GHSA-[\w-]+/i)?.[0]).filter((t): t is string => !!t);
+  const focus = [...new Set([...cves, ...ghsaIds])];
+  const primary = [...new Set([...(/^https?:\/\//i.test(target) ? [target] : []), ...ghsaUrls])];
   const pages = [
-    ...(/^https?:\/\//i.test(target) ? [{ url: target, focus: [] as string[] }] : []),
-    ...(input.sources ?? []).filter((u) => u !== target).map((url) => ({ url, focus })),
+    ...primary.map((url) => ({ url, focus: [] as string[] })),
+    ...(input.sources ?? []).filter((u) => !primary.includes(u)).map((url) => ({ url, focus })),
   ];
   const digests: AdvisoryDigest[] = [];
   for (const page of pages) {
@@ -1073,7 +1180,7 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
     const res = step.value;
     if (res.ok) {
       digests.push(res.digest);
-      ledger.fetched.push({ source: page.url, text: res.raw });
+      ledger.fetched.push({ source: page.url, text: res.raw, cve: res.digest.cve });
       digestUsage = mergeUsage(digestUsage, res.usage);
       yield {
         type: "digest", url: page.url, cached: res.cached, items: res.digest.items.length,
@@ -1085,7 +1192,7 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
   }
 
   // 4. The first message, leaner if the full one would not leave room to answer.
-  const context = { target, cve, stack: input.stack, parsed, nvd, digests };
+  const context = { target, cves, stack: input.stack, parsed, nvds, digests };
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: firstMessage({ ...context, lean: false }) },
@@ -1133,7 +1240,7 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
     if (text && calls.length) yield { type: "thinking", iteration, text };
 
     if (!calls.length) {
-      const validated = validateReport(extractJson(text));
+      const validated = validateReport(extractJson(text), cves);
       if (validated.ok) {
         // The model has had its say. Now the evidence gets the last word.
         const { report: enforced, log } = enforceInvariants(validated.report, ledger);
@@ -1189,11 +1296,11 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
         const res = step.value;
         if (res.ok) {
           digests.push(res.digest);
-          ledger.fetched.push({ source: url, text: res.raw });
+          ledger.fetched.push({ source: url, text: res.raw, cve: res.digest.cve });
           digestUsage = mergeUsage(digestUsage, res.usage);
           keepFull.add(call.id); // its quotes are needed for the final citations
           result = { ok: true, items: res.digest.items.length };
-          full = renderDigest(res.digest);
+          full = renderDigest(res.digest, {});
           line = `Digest of ${url}: ${res.digest.items.length} verified items.`;
         } else {
           result = { ok: false, error: res.error };

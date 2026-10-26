@@ -17,6 +17,7 @@ import { join } from "node:path";
 
 import { VERDICT_LABELS, runAgent, type FirstWatchReport, type TokenUsage, type Verdict } from "../lib/agent";
 import { runBaseline } from "../lib/baseline";
+import { cachedDigests, formatRecall, reportViolations, scoreDigest, type AnswerKey } from "../lib/recall";
 import { emptyUsage, mergeUsage } from "../lib/llm";
 import { parse_stack } from "../lib/tools";
 import { loadEnv } from "./env.mjs";
@@ -31,6 +32,7 @@ type CaseSpec = {
   description: string;
   stack: string;
   cve: string;
+  cves?: string[];
   target: string;
   sources?: string[];
   ground_truth: string;
@@ -60,14 +62,46 @@ const n = (x: number) => x.toLocaleString();
 const label = (v: Verdict | "none") => (v === "none" ? "none" : VERDICT_LABELS[v]);
 
 /** How reassuring a verdict is. Saying something safer than the truth is the dangerous error. */
+const KEY_PATH = "eval/digest-answer-key.json";
+const answerKey = (): AnswerKey | null => {
+  try {
+    return JSON.parse(readFileSync(KEY_PATH, "utf8")) as AnswerKey;
+  } catch {
+    return null;
+  }
+};
+
+/** Score every cached digest that the answer key covers. */
+function printRecall(): number {
+  const key = answerKey();
+  if (!key) return 0;
+  console.log(`\n${bold("digest recall")}  ${dim(`against ${KEY_PATH}`)}`);
+  const digests = cachedDigests();
+  let violations = 0;
+  for (const [url, entry] of Object.entries(key.advisories)) {
+    const d = digests.find((x) => x.url === url);
+    if (!d) {
+      console.log(`  ${yellow("not digested yet")} ${url}`);
+      continue;
+    }
+    const r = scoreDigest(d, entry);
+    const pct = r.found / Math.max(1, r.total);
+    console.log(`  ${(pct === 1 ? green : pct >= 0.8 ? yellow : red)(formatRecall(r).padEnd(10))}  ${url}`);
+    for (const c of r.checks.filter((x) => !x.found)) console.log(`      ${dim(`missing ${c.category}: ${c.expected.slice(0, 100)}`)}`);
+    for (const v of r.violations) console.log(`      ${red(v)}`);
+    violations += r.violations.length;
+  }
+  return violations;
+}
+
 const REASSURANCE: Record<Verdict, number> = { NOT_AFFECTED: 3, AFFECTED_MITIGATED: 2, UNVERIFIED: 1, AFFECTED: 0 };
 
 function loadCases(): Loaded[] {
   return readdirSync(CASES_DIR)
     .filter((d) => statSync(join(CASES_DIR, d)).isDirectory())
     .sort()
-    // "--case a" means case a, not every id containing the letter a.
-    .filter((d) => !only || d === only || d.startsWith(`${only}-`))
+    // "--case a" means case a, not every id containing the letter a. "--case a,f,h" picks several.
+    .filter((d) => !only || only.split(",").some((o) => d === o.trim() || d.startsWith(`${o.trim()}-`)))
     .map((d) => {
       const dir = join(CASES_DIR, d);
       const spec = JSON.parse(readFileSync(join(dir, "case.json"), "utf8")) as CaseSpec;
@@ -92,7 +126,7 @@ async function dryRun(cases: Loaded[]): Promise<number> {
   let problems = 0;
   for (const k of cases) {
     const parsed = parse_stack(k.files);
-    const base = await runBaseline({ files: k.files, cve: k.cve, target: k.target });
+    const base = await runBaseline({ files: k.files, cve: k.cve, cves: k.cves, target: k.target });
     const baseOk = !k.baseline_expected || base.report.overall === k.baseline_expected;
     console.log(`\n${bold(k.id)} ${dim(`expects ${k.expect.verdict}`)}`);
     if (!parsed.ok) {
@@ -105,7 +139,7 @@ async function dryRun(cases: Loaded[]): Promise<number> {
     if (!baseOk) problems++;
   }
   console.log(`\n${problems ? red(`${problems} problems`) : green("fixtures and baseline consistent")} ${dim("(no model calls made)")}`);
-  return problems;
+  return problems + printRecall();
 }
 
 /* --- live run ----------------------------------------------------- */
@@ -114,8 +148,9 @@ type Result = { verdict: Verdict | "none"; report: FirstWatchReport | null; tool
 async function runFirstWatch(k: Loaded): Promise<Result> {
   const started = Date.now();
   const out: Result = { verdict: "none", report: null, toolCalls: 0, ms: 0, note: "", usage: emptyUsage(), digest: emptyUsage(), downgrades: 0 };
-  for await (const e of runAgent({ stack: k.stack, files: k.files, target: k.target, cve: k.cve, sources: k.sources, model, maxIterations: max ? Number(max) : undefined })) {
+  for await (const e of runAgent({ stack: k.stack, files: k.files, target: k.target, cve: k.cve, cves: k.cves, sources: k.sources, model, maxIterations: max ? Number(max) : undefined })) {
     if (e.type === "digest") console.log(`    ${dim("digest")} ${e.url} ${e.error ? red(e.error.slice(0, 160)) : e.cached ? dim(`cached, ${e.items} items`) : `${e.items} items kept, ${e.dropped} dropped, ${e.chunks} part(s), ${n(e.tokens)} tokens`}`);
+    if (e.type === "digest_request" && verbose) console.log(`    ${dim("digest request")} part ${e.index} of ${e.of}, ~${n(e.estimated)} tokens estimated`);
     if (e.type === "nvd") console.log(`    ${dim("nvd   ")} ${e.id}: ${e.ranges} php ranges${e.note ? ` (${e.note})` : ""}`);
     if (e.type === "waiting") console.log(`    ${yellow("wait  ")} ${ms(e.ms)}: ${e.reason}`);
     if (e.type === "compacted") console.log(`    ${yellow("compact")} ${e.note}`);
@@ -154,7 +189,7 @@ async function liveRun(cases: Loaded[]) {
     console.log(`\n${bold(k.id)} ${dim(`expects ${label(k.expect.verdict)}`)}`);
     console.log(`  ${dim(k.why)}`);
     const fw = await runFirstWatch(k);
-    const base = (await runBaseline({ files: k.files, cve: k.cve, target: k.target })).report.overall;
+    const base = (await runBaseline({ files: k.files, cve: k.cve, cves: k.cves, target: k.target })).report.overall;
     const acceptable = k.expect.also_acceptable ?? [];
     const fwG = grade(k.expect.verdict, acceptable, fw.verdict);
     const baseG = grade(k.expect.verdict, acceptable, base);
@@ -170,6 +205,13 @@ async function liveRun(cases: Loaded[]) {
     if (fw.report?.summary) console.log(`  ${dim(fw.report.summary.slice(0, 300))}`);
     if (fw.report?.warnings?.length) for (const w of fw.report.warnings) console.log(`  ${yellow("warning")} ${w.why}`);
     if (fw.report?.citation_issues?.length) console.log(`  ${yellow(`${fw.report.citation_issues.length} citation(s) not found in the source they name`)}`);
+    const key = answerKey();
+    for (const v of fw.report && key ? reportViolations(fw.report, key) : []) console.log(`  ${red("not stated by that advisory:")} ${v}`);
+    if (fw.report) {
+      const byPkg = new Map<string, string[]>();
+      for (const f of fw.report.findings) byPkg.set(f.package, [...(byPkg.get(f.package) ?? []), `${f.cve ?? "?"}: ${label(f.verdict)}`]);
+      for (const [pkg, vs] of byPkg) console.log(`    ${dim(pkg.padEnd(24))} ${vs.join("; ")}`);
+    }
     if (!mentioned) console.log(`  ${yellow("missing")} expected "${k.expect.must_mention}" in the report`);
     if (fw.note) console.log(`  ${red("note")} ${fw.note.slice(0, 300)}`);
   }
@@ -196,8 +238,9 @@ async function liveRun(cases: Loaded[]) {
     const perCase = agent.total / rows.length;
     console.log(dim(`  projected for all 9 cases: about ${n(Math.round(perCase * 9))} agent tokens, plus digests, which are cached after their first run`));
   }
+  const violations = printRecall();
   console.log(dim(`  reports written to ${OUT_DIR}/`));
-  return rows.length - fwT.pass - fwT.soft + fwT.unsafe;
+  return rows.length - fwT.pass - fwT.soft + fwT.unsafe + violations;
 }
 
 const cases = loadCases();

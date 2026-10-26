@@ -34,6 +34,8 @@ export function baselineVerdict(
 export async function runBaseline(input: {
   files?: StackFiles;
   cve: string;
+  /** Every CVE in the disclosure: a scanner flags the host if any range matches. */
+  cves?: string[];
   target: string;
   /** Inject ranges to run offline; otherwise they come from the cached NVD record. */
   ranges?: string[];
@@ -42,18 +44,20 @@ export async function runBaseline(input: {
   const parsed = input.files ? parse_stack(input.files) : null;
   const seen = parsed?.ok ? scannerVersion(parsed.facts) : null;
 
-  let ranges = input.ranges ?? [];
+  const ranges = [...(input.ranges ?? [])];
   let cvss: string | null = null;
   let score: number | null = null;
   let note = "";
   if (!input.ranges) {
-    const rec = await cachedCve(input.cve);
-    if (rec.ok && "found" in rec && rec.found) {
-      ranges = rec.affected.filter((a) => a.product === "php/php").map((a) => a.range);
-      cvss = rec.severity?.scale ?? null;
-      score = rec.severity?.score ?? null;
-    } else {
-      note = rec.ok ? `NVD has no record of ${input.cve}` : rec.error;
+    for (const id of [...new Set([input.cve, ...(input.cves ?? [])])]) {
+      const rec = await cachedCve(id);
+      if (rec.ok && "found" in rec && rec.found) {
+        ranges.push(...rec.affected.filter((a) => a.product === "php/php").map((a) => a.range));
+        cvss ??= rec.severity?.scale ?? null;
+        score ??= rec.severity?.score ?? null;
+      } else {
+        note = rec.ok ? `NVD has no record of ${id}` : rec.error;
+      }
     }
   }
 

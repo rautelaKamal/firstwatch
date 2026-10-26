@@ -61,9 +61,10 @@ export function llmConfig(overrides: Partial<LlmConfig> = {}): LlmConfig | null 
  * Estimating
  * ------------------------------------------------------------------ */
 
-// Deliberately pessimistic. Real English and JSON run nearer 4 characters a
-// token; 3 leaves a margin, and calibration only ever raises the estimate.
-const CHARS_PER_TOKEN = 3;
+// Deliberately pessimistic. The first live run measured 4.2 characters a token
+// for agent requests and 5.0 for advisory text; 3.5 keeps a margin of at least
+// 17%, and calibration raises the estimate if a provider ever reports more.
+const CHARS_PER_TOKEN = 3.5;
 let calibration = 1;
 
 export const estimateTokens = (text: string) => Math.ceil((text.length / CHARS_PER_TOKEN) * calibration);

@@ -10,7 +10,7 @@
     "agent": "tsx scripts/run.mts",
     "eval": "tsx scripts/eval.mts",
     "verify-truth": "tsx scripts/verify-truth.mts",
-    "test": "tsx scripts/test-invariants.mts && tsx scripts/test-pipeline.mts"
+    "test": "tsx scripts/test-invariants.mts && tsx scripts/test-pipeline.mts && tsx scripts/test-recall.mts"
   },
   "dependencies": {
     "cheerio": "^1.1.0",

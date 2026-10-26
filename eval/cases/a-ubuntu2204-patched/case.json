@@ -3,6 +3,10 @@
   "description": "Ubuntu 22.04 with the current php8.1 package. Upstream 8.1 is EOL with no fixed release, so a version scanner raises a critical alarm. Ubuntu backported the fix in 8.1.2-1ubuntu2.28 and the host is not affected.",
   "stack": "Ubuntu 22.04 LTS, Apache with libapache2-mod-php8.1, public web app",
   "cve": "CVE-2026-109618",
+  "cves": [
+    "CVE-2026-109618",
+    "CVE-2026-109619"
+  ],
   "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
   "sources": [
     "https://www.php.net/archive/2026.php"

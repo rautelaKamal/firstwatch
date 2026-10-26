@@ -3,6 +3,10 @@
   "description": "Debian 12 with bookworm-security enabled, so php8.2 is at the DLA-fixed 8.2.35-1~deb12u1.",
   "stack": "Debian 12 bookworm, nginx with php8.2-fpm",
   "cve": "CVE-2026-109618",
+  "cves": [
+    "CVE-2026-109618",
+    "CVE-2026-109619"
+  ],
   "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
   "sources": [
     "https://www.php.net/archive/2026.php"
