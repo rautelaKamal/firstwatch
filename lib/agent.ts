@@ -939,17 +939,51 @@ export function annotate(report: FirstWatchReport, ledger: Ledger, digests: Advi
   const prose = new Map(ledger.fetched.map((f) => [canon(f.source), normaliseProse(f.text)]));
   const issues: NonNullable<FirstWatchReport["citation_issues"]> = [];
 
-  const findings = report.findings.map((f) => ({
-    ...f,
-    citations: (f.citations ?? []).map((c) => {
+  // Branches with an upstream fixed release, from the advisories' own patched lists.
+  const patched = [...new Set(digests.flatMap((d) => d.structured?.patched ?? []))];
+  const patchedBranches = new Set(patched.map((v) => v.match(/^\d+\.\d+/)?.[0]).filter(Boolean));
+  const haveFields = digests.some((d) => d.structured);
+  const distroPhp = ledger.facts.some(
+    (x) => x.field.startsWith("pkg.") && !x.field.endsWith(".unmapped") && sourcePackageOf(x.field.slice(4)) !== null,
+  );
+  const corrections = [...(report.corrections ?? [])];
+
+  const findings = report.findings.map((f) => {
+    const branch = str(f.installed_version).match(/^(\d+\.\d+)/)?.[1] ?? f.eol?.branch;
+    let eol = f.eol;
+    let remediation = f.remediation ?? [];
+    const label = `${f.package}${f.cve ? ` (${f.cve})` : ""}`;
+    if (haveFields && branch) {
+      // No upstream release is not no fix (distros backport), but it is no upstream fix.
+      const exists = patchedBranches.has(branch);
+      if (eol && eol.upstream_release_exists !== exists) {
+        corrections.push(`${label}: upstream_release_exists was ${eol.upstream_release_exists}; the advisories list ${exists ? "a" : "no"} patched release for ${branch}.`);
+        eol = { ...eol, upstream_release_exists: exists };
+      }
+      const upstreamBuild = !distroPhp && f.package.trim().toLowerCase() === "php";
+      const affected = f.verdict === "AFFECTED" || f.verdict === "AFFECTED_MITIGATED";
+      if (!exists && upstreamBuild && affected && !remediation.some((r) => r.type === "isolate")) {
+        remediation = [
+          {
+            priority: 1,
+            type: "isolate",
+            action: "Isolate this service until it runs a supported, patched branch",
+            detail: `No upstream release fixes PHP ${branch}: the advisories' patched versions are ${patched.join(", ")}. Restrict its network reach, put it behind a proxy or WAF rule, or disable the affected feature, then move to a supported branch.`,
+          },
+          ...remediation.map((r) => ({ ...r, priority: r.priority + 1 })),
+        ];
+        corrections.push(`${label}: added an isolate step; no upstream release exists for ${branch}.`);
+      }
+    }
+    return { ...f, eol, remediation, citations: (f.citations ?? []).map((c) => {
       const src = canon(str(c.source));
       const match = [...prose.keys()].find((k) => src && (src.includes(k) || k.includes(src)));
       if (!match) return { ...c, verified: null };
       const verified = prose.get(match)!.includes(normaliseProse(str(c.quote)));
       if (!verified) issues.push({ package: f.package, claim: str(c.claim), source: str(c.source) });
       return { ...c, verified };
-    }),
-  }));
+    }) };
+  });
 
   const anti = digests.flatMap((d) => d.items.filter((i) => i.kind === "anti_mitigation").map((i) => ({ ...i, url: d.url })));
   const warnings: NonNullable<FirstWatchReport["warnings"]> = [];
@@ -990,6 +1024,7 @@ export function annotate(report: FirstWatchReport, ledger: Ledger, digests: Advi
     findings,
     warnings,
     citation_issues: issues,
+    corrections,
     cves: ledger.cves,
     fixed_versions,
     fixed_versions_identical: identical,

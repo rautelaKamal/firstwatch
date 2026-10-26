@@ -15,7 +15,9 @@
   "expect": {
     "verdict": "AFFECTED",
     "also_acceptable": [],
-    "must_mention": "isolat"
+    "must_remediate": [
+      "isolate"
+    ]
   },
   "baseline_expected": "AFFECTED",
   "why": "php -v reports 8.1.33, inside NVD's >= 5.4.0 < 8.2.35. No Debian php8.1 package is installed, so no backport applies. 8.1 is EOL upstream: move branch or isolate."

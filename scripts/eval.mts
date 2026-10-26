@@ -36,7 +36,7 @@ type CaseSpec = {
   target: string;
   sources?: string[];
   ground_truth: string;
-  expect: { verdict: Verdict; also_acceptable?: Verdict[]; must_mention?: string };
+  expect: { verdict: Verdict; also_acceptable?: Verdict[]; must_mention?: string; must_remediate?: string[] };
   baseline_expected?: Verdict;
   why: string;
 };
@@ -194,7 +194,12 @@ async function liveRun(cases: Loaded[]) {
     const fwG = grade(k.expect.verdict, acceptable, fw.verdict);
     const baseG = grade(k.expect.verdict, acceptable, base);
     const mention = (k.expect.must_mention ?? "").toLowerCase();
-    const mentioned = !mention || JSON.stringify(fw.report ?? {}).toLowerCase().includes(mention);
+    // Remediation is checked by its type field, on every affected finding, not by searching the text.
+    const affectedFindings = (fw.report?.findings ?? []).filter((f) => f.verdict === "AFFECTED" || f.verdict === "AFFECTED_MITIGATED");
+    const missingTypes = (k.expect.must_remediate ?? []).filter(
+      (t) => !affectedFindings.length || affectedFindings.some((f) => !(f.remediation ?? []).some((r) => r.type === t)),
+    );
+    const mentioned = (!mention || JSON.stringify(fw.report ?? {}).toLowerCase().includes(mention)) && !missingTypes.length;
     rows.push({ k, fw, base, fwG, baseG, mentioned });
 
     const both = mergeUsage(fw.usage, fw.digest);
@@ -213,7 +218,7 @@ async function liveRun(cases: Loaded[]) {
       for (const f of fw.report.findings) byPkg.set(f.package, [...(byPkg.get(f.package) ?? []), `${f.cve ?? "?"}: ${label(f.verdict)}`]);
       for (const [pkg, vs] of byPkg) console.log(`    ${dim(pkg.padEnd(24))} ${vs.join("; ")}`);
     }
-    if (!mentioned) console.log(`  ${yellow("missing")} expected "${k.expect.must_mention}" in the report`);
+    if (!mentioned) console.log(`  ${yellow("missing")} ${missingTypes.length ? `a remediation of type ${missingTypes.join(", ")} on every affected finding` : `"${k.expect.must_mention}" in the report`}`);
     if (fw.note) console.log(`  ${red("note")} ${fw.note.slice(0, 300)}`);
   }
 

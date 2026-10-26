@@ -445,6 +445,52 @@ await test("annotate states, with a citation to each, that both CVEs share their
   assert.match(out.summary, /CVE-2026-109618 \(GHSA-w8hw-w9fx-j79w\) and CVE-2026-109619 \(GHSA-6wmf-4rv5-p3rp\) list identical patched versions/);
 });
 
+/* ================================================================== *
+ * No upstream release: upstream_release_exists and isolate, enforced in code
+ * ================================================================== */
+
+const caseFacts = (id: string) => {
+  const dir = join("eval/cases", id);
+  const p = parse_stack(Object.fromEntries(readdirSync(dir).filter((f) => f !== "case.json").map((f) => [f, readFileSync(join(dir, f), "utf8")])));
+  assert.ok(p.ok);
+  return p.facts;
+};
+const ghsaWithPatched = () =>
+  digestOf({
+    url: GHSA, cve: "CVE-2026-109618", ghsa: "GHSA-w8hw-w9fx-j79w",
+    structured: { ghsa: "GHSA-w8hw-w9fx-j79w", cve: "CVE-2026-109618", title: "", affected: ["< 8.2.35"], patched: ["8.2.35", "8.3.36", "8.4.27", "8.5.12"], affectedQuote: "Affected versions < 8.2.35", patchedQuote: "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12", cveQuote: null },
+  });
+
+await test("the saved php:8.1 report gets upstream_release_exists false and an isolate step", () => {
+  const saved = JSON.parse(readFileSync("fixtures/f-upstream-php81-fpm-image.json", "utf8")).report as FirstWatchReport;
+  assert.ok(saved.findings.some((f) => f.eol?.upstream_release_exists === true), "the gap this fixes is in the saved run");
+  assert.ok(saved.findings.every((f) => !f.remediation.some((r) => r.type === "isolate")));
+  const out = annotate(saved, emptyLedger(caseFacts("f-upstream-php81-fpm-image")), [ghsaWithPatched()]);
+  for (const f of out.findings) {
+    assert.equal(f.eol?.upstream_release_exists, false, f.cve);
+    const sorted = [...f.remediation].sort((a, b) => a.priority - b.priority);
+    assert.equal(sorted[0].type, "isolate", "isolate comes first");
+    assert.ok(sorted.some((r) => r.type === "patch"), "the upgrade step is kept");
+  }
+  assert.ok(out.corrections?.some((c) => c.includes("added an isolate step")));
+  assert.ok(out.corrections?.some((c) => c.includes("upstream_release_exists was true")));
+});
+
+await test("an affected 8.4 build, which has an upstream release, gets no isolate step", () => {
+  const saved = JSON.parse(readFileSync("fixtures/h-upstream-84-mitigated.json", "utf8")).report as FirstWatchReport;
+  const out = annotate(saved, emptyLedger(caseFacts("h-upstream-84-mitigated")), [ghsaWithPatched()]);
+  assert.ok(out.findings.every((f) => !f.remediation.some((r) => r.type === "isolate")));
+  assert.ok(out.findings.every((f) => f.eol === null || f.eol.upstream_release_exists === true));
+});
+
+await test("a distro 8.1 package gets upstream_release_exists false but no isolate step", () => {
+  const r = reportWith([]);
+  r.findings = [{ ...r.findings[0], package: "php8.1-cli", installed_version: "8.1.2-1ubuntu2.28", verdict: "NOT_AFFECTED", eol: { branch: "8.1", is_eol: true, upstream_release_exists: true, note: "" }, remediation: [] }];
+  const out = annotate(r, emptyLedger(caseFacts("a-ubuntu2204-patched")), [ghsaWithPatched()]);
+  assert.equal(out.findings[0].eol?.upstream_release_exists, false);
+  assert.equal(out.findings[0].remediation.length, 0, "the distro backport fixed it; nothing to isolate");
+});
+
 /* --- report ------------------------------------------------------- */
 let failed = 0;
 for (const r of results) {
