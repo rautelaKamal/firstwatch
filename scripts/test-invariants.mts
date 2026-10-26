@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
   emptyLedger,
   enforceInvariants,
+  validateReport,
   type FirstWatchReport,
   type Ledger,
   type PackageFinding,
@@ -554,6 +555,29 @@ test("two CVEs: cleared for both is NOT_AFFECTED, each allow_reason naming its C
   assert.equal(out.overall, "NOT_AFFECTED");
   assert.equal(log.length, 0);
   for (const f of out.findings) assert.ok(f.allow_reason?.includes(`for ${f.cve}`), `${f.package} ${f.cve}`);
+});
+
+/* ================================================================== *
+ * An invalid overall is corrected in code, never sent back for repair
+ * ================================================================== */
+
+test("an invalid overall passes validation, is recomputed, and the correction is logged", () => {
+  const raw = { ...report([finding("libapache2-mod-php8.1", "8.1.2-1ubuntu2.21", "AFFECTED")]), overall: "Affected, probably" };
+  const v = validateReport(raw);
+  assert.ok(v.ok, "no repair request for a field code recomputes");
+  const ledger = emptyLedger(factsOf("b-ubuntu2204-stale"));
+  osv(ledger, "Ubuntu:22.04:LTS", "libapache2-mod-php8.1", "8.1.2-1ubuntu2.21", "affected");
+  const { report: out } = enforceInvariants(v.ok ? v.report : (raw as FirstWatchReport), ledger);
+  assert.equal(out.overall, "AFFECTED");
+  assert.equal(out.corrections?.length, 1);
+  assert.match(out.corrections?.[0] ?? "", /"Affected, probably".*recomputed.*AFFECTED/);
+});
+
+test("a correct overall produces no correction", () => {
+  const ledger = emptyLedger(factsOf("b-ubuntu2204-stale"));
+  osv(ledger, "Ubuntu:22.04:LTS", "libapache2-mod-php8.1", "8.1.2-1ubuntu2.21", "affected");
+  const r = { ...report([finding("libapache2-mod-php8.1", "8.1.2-1ubuntu2.21", "AFFECTED")]), overall: "AFFECTED" as Verdict };
+  assert.deepEqual(enforceInvariants(r, ledger).report.corrections, []);
 });
 
 /* --- report ------------------------------------------------------- */

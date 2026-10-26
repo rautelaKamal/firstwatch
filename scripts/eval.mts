@@ -204,6 +204,7 @@ async function liveRun(cases: Loaded[]) {
     for (const r of both.perRequest) console.log(`    ${dim(r.label.padEnd(12))} ${n(r.total).padStart(6)} tokens  ${dim(`(${n(r.prompt)} in, ${n(r.completion)} out, estimated ${n(r.estimated)})`)}`);
     if (fw.report?.summary) console.log(`  ${dim(fw.report.summary.slice(0, 300))}`);
     if (fw.report?.warnings?.length) for (const w of fw.report.warnings) console.log(`  ${yellow("warning")} ${w.why}`);
+    for (const c of fw.report?.corrections ?? []) console.log(`  ${dim("corrected")} ${c}`);
     if (fw.report?.citation_issues?.length) console.log(`  ${yellow(`${fw.report.citation_issues.length} citation(s) not found in the source they name`)}`);
     const key = answerKey();
     for (const v of fw.report && key ? reportViolations(fw.report, key) : []) console.log(`  ${red("not stated by that advisory:")} ${v}`);

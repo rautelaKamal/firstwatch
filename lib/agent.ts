@@ -112,6 +112,8 @@ export type FirstWatchReport = {
   enforcement_log?: { package: string; invariant: string; from: Verdict; to: Verdict; why: string }[];
   /** Written by code: the CVEs under assessment. */
   cves?: string[];
+  /** Written by code: fields the model got wrong that code recomputed instead of asking again. */
+  corrections?: string[];
   /** Written by code: each advisory's patched versions, parsed from its fields, with the quote and page. */
   fixed_versions?: { cve: string; ghsa: string | null; patched: string[]; quote: string; source: string }[];
   /** Written by code: true when every advisory lists the same patched versions; null with fewer than two. */
@@ -742,6 +744,13 @@ export function enforceInvariants(
     ? allFindings.reduce<Verdict>((worst, f) => (REASSURANCE[f.verdict] < REASSURANCE[worst] ? f.verdict : worst), "NOT_AFFECTED")
     : "UNVERIFIED";
 
+  // A wrong or invalid overall is corrected here, not sent back to the model:
+  // a repair request costs a full turn to fix a value code computes anyway.
+  const corrections = [...(report.corrections ?? [])];
+  if (report.overall !== overall) {
+    corrections.push(`overall was ${JSON.stringify(report.overall ?? null)}; recomputed from the findings as ${overall}.`);
+  }
+
   const coveredNote = covered.length
     ? ` Also installed: ${covered.join(", ")} (share the source package; covered by the SAPI verdicts).`
     : "";
@@ -752,6 +761,7 @@ export function enforceInvariants(
       summary: `${str(report.summary).trim()}${coveredNote}`.trim(),
       findings: allFindings,
       overall,
+      corrections,
       covered_packages: covered,
       enforcement_log: log,
     },
@@ -996,12 +1006,8 @@ export function validateReport(value: unknown, cves: string[] = []): { ok: true;
   const r = value as Record<string, unknown> | null;
   if (!r || typeof r !== "object") return { ok: false, errors: ["the reply was not a JSON object"] };
 
-  for (const key of ["target", "assessed_at", "overall", "summary"]) {
-    if (typeof r[key] !== "string") errors.push(`${key} must be a string`);
-  }
-  if (typeof r.overall === "string" && !VERDICTS.includes(r.overall as Verdict)) {
-    errors.push(`overall must be one of ${VERDICTS.join(", ")}`);
-  }
+  // overall, target and assessed_at are not checked: code sets all three.
+  if (typeof r.summary !== "string") errors.push("summary must be a string");
   if (!Array.isArray(r.findings) || !r.findings.length) {
     errors.push("findings must be a non-empty array, one entry per installed package");
   } else {
@@ -1225,7 +1231,8 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
       const validated = validateReport(extractJson(text), cves);
       if (validated.ok) {
         // The model has had its say. Now the evidence gets the last word.
-        const { report: enforced, log } = enforceInvariants(validated.report, ledger);
+        const stamped = { ...validated.report, target, assessed_at: new Date().toISOString() };
+        const { report: enforced, log } = enforceInvariants(stamped, ledger);
         if (log.length) yield { type: "enforced", downgrades: log };
         const report = annotate(enforced, ledger, digests);
         yield { type: "final", iteration, report, text, toolCalls, ms: Date.now() - startedAt, usage, digestUsage };
