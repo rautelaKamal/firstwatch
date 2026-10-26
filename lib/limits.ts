@@ -17,7 +17,7 @@ export type LiveDecision =
 const cap = () => Number(process.env.LIVE_DAILY_CAP ?? 10);
 const windowMinutes = () => Number(process.env.LIVE_IP_WINDOW_MINUTES ?? 10);
 const today = () => new Date().toISOString().slice(0, 10);
-const FALLBACK = "Showing the saved run instead.";
+export const FALLBACK = "Showing the saved run instead.";
 
 const redis = () => {
   const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;

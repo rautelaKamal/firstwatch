@@ -9,6 +9,14 @@
  * when lib/limits.ts allows it, and otherwise says why and replays. The
  * scanner baseline and stack parsing are code and always run.
  *
+ * Input that is not one of the examples ("check your own server") must be in
+ * lib/scope.ts's scope first. Outside it the stream carries one "unsupported"
+ * message and no verdict, not even the scanner's.
+ *
+ * Nothing from the request body is stored or logged here. A live run sends
+ * the parsed distro, package versions and settings to OSV and to the model
+ * provider; lib/limits.ts keeps the client IP for its rate-limit window.
+ *
  * No `export const runtime`: Cache Components is on in next.config.ts, which
  * requires the Node.js runtime (the default) and rejects the runtime export,
  * even when set to "nodejs". cheerio needs Node, and Node is what it gets.
@@ -18,8 +26,9 @@ import { runAgent, type AgentEvent, type FirstWatchReport } from "@/lib/agent";
 import { runBaseline } from "@/lib/baseline";
 import { cachedCveNow } from "@/lib/cache";
 import { caseSpec, savedRun } from "@/lib/examples";
-import { allowLiveRun, clientIp } from "@/lib/limits";
+import { allowLiveRun, clientIp, FALLBACK } from "@/lib/limits";
 import { emptyUsage, type TokenUsage } from "@/lib/llm";
+import { checkScope } from "@/lib/scope";
 import { parse_stack } from "@/lib/tools";
 
 // A live run is paced to the provider's per-minute budget and takes minutes.
@@ -41,12 +50,13 @@ export type StreamEvent =
   | AgentEvent
   | { type: "baseline"; report: FirstWatchReport; version: string | null }
   | { type: "replay"; note: string; recorded: { at: string | null; model: string; tokens: number | null } }
-  | { type: "live_unavailable"; reason: string; message: string };
+  | { type: "live_unavailable"; reason: string; message: string }
+  | { type: "unsupported"; message: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Replay a saved run as a believable sequence of steps. No model is called. */
-async function* replay(exampleId: string | undefined, files: Record<string, string>): AsyncGenerator<StreamEvent> {
+async function* replay(exampleId: string | undefined): AsyncGenerator<StreamEvent> {
   const saved = savedRun(exampleId);
   if (!saved) {
     yield {
@@ -62,14 +72,6 @@ async function* replay(exampleId: string | undefined, files: Record<string, stri
     // Every recording so far used gpt-oss-120b; newer recordings store their model.
     recorded: { at: report.assessed_at ?? null, model: saved.model ?? "openai/gpt-oss-120b", tokens: saved.usage?.total ?? null },
   };
-
-  const parsed = parse_stack(files);
-  if (parsed.ok) {
-    yield {
-      type: "facts", summary: parsed.summary, facts: parsed.facts.length, ecosystems: parsed.ecosystems,
-      packages: parsed.packages.length, runtimeEvidence: parsed.hasRuntimeEvidence, unverified: parsed.unverified,
-    };
-  }
   await sleep(300);
 
   let i = 0;
@@ -114,6 +116,8 @@ export async function POST(req: Request) {
   const model = typeof body.model === "string" && allowed.includes(body.model) ? body.model : undefined;
   const wantsLive = body.live === true;
   const spec = caseSpec(exampleId);
+  // Not an example with a recording: the visitor's own server.
+  const own = !savedRun(exampleId);
   const encoder = new TextEncoder();
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -142,6 +146,15 @@ export async function POST(req: Request) {
 
       void (async () => {
         try {
+          // 0. Own input outside the supported distros, or with no PHP packages: say so, and give no verdict.
+          if (own) {
+            const scope = checkScope([files["os-release"], files["php-v.txt"], files["dpkg.txt"]].filter(Boolean).join("\n"));
+            if (!scope.ok) {
+              send({ type: "unsupported", message: scope.message });
+              return;
+            }
+          }
+
           // 1. The scanner baseline first. Code only, and from the cached NVD records
           //    when we have them, so it goes out before any network or model wait.
           const records = spec.cves.map((id) => cachedCveNow(id));
@@ -150,19 +163,32 @@ export async function POST(req: Request) {
             : undefined;
           const baseline = await runBaseline({ files, cve: spec.cve, cves: spec.cves, target: spec.target, ranges });
           send({ type: "baseline", report: baseline.report, version: baseline.version });
+          const parsed = parse_stack(files);
+          if (parsed.ok) {
+            send({
+              type: "facts", summary: parsed.summary, facts: parsed.facts.length, ecosystems: parsed.ecosystems,
+              packages: parsed.packages.length, runtimeEvidence: parsed.hasRuntimeEvidence, unverified: parsed.unverified,
+            });
+          }
 
           // 2. Only now the checks that may wait.
           let live = false;
           if (wantsLive) {
             const decision = await allowLiveRun(ip);
             live = decision.ok;
-            if (!decision.ok) send({ type: "live_unavailable", reason: decision.reason, message: decision.message });
+            if (!decision.ok) {
+              const message = own ? decision.message.replace(FALLBACK, "The scanner result and parsing above are complete; try the AI check again later.") : decision.message;
+              send({ type: "live_unavailable", reason: decision.reason, message });
+            }
           }
+          // Own input has no recording to fall back on: the baseline and parsing are the whole answer.
+          if (!live && own) return;
           const events = live
             ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources, model, deadline: startedAt + maxDuration * 1000 - DEADLINE_MARGIN_MS })
-            : replay(exampleId, files);
+            : replay(exampleId);
           for await (const event of events) {
             if (closed) break; // ends the generator, so the agent makes no further calls
+            if (event.type === "facts") continue; // already sent above
             send(event);
           }
         } catch (e) {

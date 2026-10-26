@@ -42,6 +42,9 @@ export const EXAMPLES = [
 // Named explicitly, so reordering the buttons never changes what a visitor lands on.
 export const DEFAULT_EXAMPLE = "g-split-cli-patched-fpm-stale";
 
+// "Try with sample output" on the check-your-own-server path fills in this example's output, and Check replays its recording.
+export const SAMPLE_EXAMPLE = "a-ubuntu2204-patched";
+
 export type Example = {
   id: string;
   label: string;

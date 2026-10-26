@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { chunkText, digestAdvisory, flattenDigest, focusOn, parseGhsa, renderDigest, verifyItems, type AdvisoryDigest } from "../lib/digest";
 import { allowLiveRun, resetLimits } from "../lib/limits";
 import { splitRuntime } from "../lib/runtime";
+import { checkScope } from "../lib/scope";
 import { reevaluate } from "../lib/whatif";
 import { scoreDigest } from "../lib/recall";
 import { callModel, chat, estimateRequest, llmConfig, planWait, resetBudget, type ChatMessage } from "../lib/llm";
@@ -769,6 +770,26 @@ await test("what-if: 10 runs of each toggle combination give byte-identical repo
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+/* ================================================================== *
+ * Check your own server: outside the scope, a message and no verdict
+ * ================================================================== */
+
+await test("checkScope accepts every supported example and refuses the rest with a reason", () => {
+  const paste = (id: string) => ["os-release", "php-v.txt", "dpkg.txt"].map((f) => { try { return readFileSync(join("eval/cases", id, f), "utf8"); } catch { return ""; } }).join("\n");
+  for (const id of ["a-ubuntu2204-patched", "c-ubuntu2404-patched", "e-debian12-no-security-pocket", "g-split-cli-patched-fpm-stale", "j-ubuntu2404-backport-cve-2024-11236"]) {
+    assert.equal(checkScope(paste(id)).ok, true, id);
+  }
+  const f = checkScope(paste("f-upstream-php81-fpm-image"));
+  assert.ok(!f.ok && /Not supported yet: dpkg lists no installed PHP packages/.test(f.message));
+  const rocky = checkScope('PRETTY_NAME="Rocky Linux 9.4"\nID="rocky"\nVERSION_ID="9.4"\nPHP 8.2.1 (cli)');
+  assert.ok(!rocky.ok && /Not supported yet: Rocky Linux 9\.4/.test(rocky.message));
+  const focal = checkScope('PRETTY_NAME="Ubuntu 20.04.6 LTS"\nID=ubuntu\nVERSION_ID="20.04"');
+  assert.ok(!focal.ok && /Ubuntu 20\.04/.test(focal.message));
+  assert.equal(checkScope("PHP 8.3.6 (cli)").ok, false);
+  // Debian without VERSION_ID still resolves from its codename.
+  assert.equal(checkScope("ID=debian\nVERSION_CODENAME=trixie\nii  php8.4-fpm 8.4.27-1~deb13u1 amd64 x").ok, true);
 });
 
 /* --- report ------------------------------------------------------- */

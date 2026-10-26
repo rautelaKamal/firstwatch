@@ -1,4 +1,4 @@
-import { DEFAULT_EXAMPLE, loadExamples } from "@/lib/examples";
+import { DEFAULT_EXAMPLE, loadExamples, SAMPLE_EXAMPLE } from "@/lib/examples";
 
 import Triage from "./triage";
 
@@ -14,12 +14,17 @@ export default function Page() {
           the distribution&apos;s own fix records for PHP2Shell (CVE-2026-109618 and CVE-2026-109619), and shows why every
           verdict stands.
         </p>
-        <p className="mt-3 rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200">
-          <span className="font-medium">How it works:</span> pick an example below, then see what a version scanner says next to
-          what FirstWatch finds, and why.
+        <p className="mt-3 text-sm font-medium text-neutral-800 dark:text-neutral-200">
+          FirstWatch tells you whether you&apos;re exposed, not whether you&apos;ve already been attacked.
         </p>
       </header>
-      <Triage examples={examples} defaultExampleId={DEFAULT_EXAMPLE} liveEnabled={process.env.LIVE_ENABLED === "true"} />
+      <Triage
+        examples={examples}
+        defaultExampleId={DEFAULT_EXAMPLE}
+        sampleExampleId={SAMPLE_EXAMPLE}
+        liveEnabled={process.env.LIVE_ENABLED === "true"}
+        ipWindowMinutes={Number(process.env.LIVE_IP_WINDOW_MINUTES ?? 10)}
+      />
     </main>
   );
 }

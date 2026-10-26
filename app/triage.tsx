@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { FirstWatchReport, PackageFinding } from "@/lib/agent";
 import { RUNTIME_COMMAND, splitRuntime } from "@/lib/runtime";
+import { checkScope, SCOPE_LINE } from "@/lib/scope";
 import { INVARIANTS, REASSURANCE, VERDICT_LABELS, type Verdict } from "@/lib/verdicts";
 
 type Example = { id: string; label: string; blurb: string; expected: string; runtime: string; config: Record<string, string> };
@@ -12,6 +13,7 @@ type LogLine = { tone: "info" | "tool" | "ok" | "warn" | "error"; text: string }
 type Recorded = { at: string | null; model: string; tokens: number | null };
 type LiveMeta = { ms: number; tokens: number; model: string };
 type WhatIfState = { memory: boolean; rlimit: boolean };
+type Mode = "examples" | "own";
 
 const duration = (ms: number) => {
   const s = Math.round(ms / 1000);
@@ -29,11 +31,6 @@ function applyWhatIf(config: Record<string, string>, w: WhatIfState): Record<str
   return out;
 }
 
-const CONFIG_FILES = [
-  { file: "Dockerfile", label: "Dockerfile" },
-  { file: "php.ini", label: "php.ini" },
-  { file: "nginx.conf", label: "nginx.conf or Apache vhost" },
-];
 const INVARIANT_COUNT = Object.keys(INVARIANTS).length;
 
 const BADGE: Record<Verdict, string> = {
@@ -324,7 +321,21 @@ function PackageCard({ name, findings, scanner, ecosystem }: { name: string; fin
   );
 }
 
-export default function Triage({ examples, defaultExampleId, liveEnabled }: { examples: Example[]; defaultExampleId: string; liveEnabled: boolean }) {
+function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return (
+    <li className="flex gap-3">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white dark:bg-neutral-100 dark:text-neutral-900">{n}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{title}</p>
+        <div className="mt-2">{children}</div>
+      </div>
+    </li>
+  );
+}
+
+export default function Triage({
+  examples, defaultExampleId, sampleExampleId, liveEnabled, ipWindowMinutes,
+}: { examples: Example[]; defaultExampleId: string; sampleExampleId: string; liveEnabled: boolean; ipWindowMinutes: number }) {
   // Open on the default example, already running: a first-time visitor should see the point before reading anything.
   const initial = examples.find((e) => e.id === defaultExampleId) ?? null;
   const [runtime, setRuntime] = useState(initial?.runtime ?? "");
@@ -346,33 +357,50 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
   const [whatIf, setWhatIf] = useState<WhatIfState>({ memory: false, rlimit: false });
   const [whatIfResult, setWhatIfResult] = useState<{ label: string; changes: string[] } | null>(null);
   const [whatIfBusy, setWhatIfBusy] = useState(false);
-  const [inputsOpen, setInputsOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>("examples");
+  const [ownText, setOwnText] = useState("");
+  const [parsed, setParsed] = useState<string | null>(null);
+  const [scannerFrom, setScannerFrom] = useState<string | null>(null);
+  const [unsupported, setUnsupported] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
   // Set by a click; consumed once the result has rendered. Never set on first load.
   const scrollPending = useRef(false);
 
   const split = useMemo(() => splitRuntime(runtime), [runtime]);
+  const ownSplit = useMemo(() => splitRuntime(ownText), [ownText]);
   const example = examples.find((e) => e.id === exampleId) ?? null;
+  const sample = examples.find((e) => e.id === sampleExampleId) ?? null;
+  // Unedited sample output replays the sample's recording instead of spending a live run.
+  const usingSample = !!sample && ownText === sample.runtime;
 
   type RunOpts = { runtime: string; config: Record<string, string>; exampleId: string | null; live: boolean };
 
-  function run(opts: RunOpts, { scroll = true }: { scroll?: boolean } = {}) {
-    setRunning(true);
+  function resetResults() {
     setLog([]);
     setReport(null);
     setBaseline(null);
     setRecorded(null);
     setNotice(null);
     setFailure(null);
-    setLiveRun(opts.live);
+    setLiveRun(false);
     setLiveMeta(null);
     setRecordedReport(null);
     setWhatIf({ memory: false, rlimit: false });
     setWhatIfResult(null);
+    setParsed(null);
+    setScannerFrom(null);
+    setUnsupported(null);
+  }
+
+  function run(opts: RunOpts, { scroll = true }: { scroll?: boolean } = {}) {
+    resetResults();
+    setRunning(true);
+    setRuntime(opts.runtime);
+    setLiveRun(opts.live);
     setStartedAt(Date.now());
     setNow(Date.now());
-    setInputsOpen(false);
     // Scrolling now would aim at a spot that moves when the inputs above collapse.
     scrollPending.current = scroll;
     void stream(opts);
@@ -387,8 +415,13 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     const push = (l: LogLine | null) => l && setLog((prev) => [...prev, l]);
     const t0 = Date.now();
     let liveModel = "";
+    // One stream at a time: a new run or a mode switch stops the old one, and the server stops its model calls.
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
       const res = await fetch("/api/triage", {
+        signal: ctrl.signal,
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ files, exampleId: opts.exampleId, live: opts.live }),
@@ -410,8 +443,15 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
           buffer = buffer.slice(cut + 2);
           if (!line) continue;
           const event = JSON.parse(line.slice(6)) as Event;
-          if (event.type === "baseline") setBaseline(event.report as FirstWatchReport);
-          if (event.type === "facts") setEcosystem(((event.ecosystems as string[]) ?? [])[0] ?? null);
+          if (event.type === "baseline") {
+            setBaseline(event.report as FirstWatchReport);
+            setScannerFrom(event.version ? String(event.version) : null);
+          }
+          if (event.type === "facts") {
+            setEcosystem(((event.ecosystems as string[]) ?? [])[0] ?? null);
+            setParsed(String(event.summary ?? ""));
+          }
+          if (event.type === "unsupported") setUnsupported(String(event.message));
           if (event.type === "replay") setRecorded(event.recorded as Recorded);
           if (event.type === "live_unavailable") setNotice(String(event.message));
           if (event.type === "error") setFailure(String(event.message));
@@ -430,10 +470,39 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
         }
       }
     } catch (e) {
+      if (ctrl.signal.aborted) return;
       push({ tone: "error", text: e instanceof Error ? e.message : String(e) });
     } finally {
-      setRunning(false);
+      if (abortRef.current === ctrl) setRunning(false);
     }
+  }
+
+  function switchMode(next: Mode) {
+    if (next === mode) return;
+    setMode(next);
+    if (next === "own") {
+      abortRef.current?.abort();
+      resetResults();
+      setRunning(false);
+      setExampleId(null);
+      history.replaceState(null, "", "?check");
+    } else {
+      pickExample(examples.find((e) => e.id === exampleId) ?? initial ?? examples[0], { scroll: false });
+    }
+  }
+
+  function check() {
+    // The same rule the route applies: outside the scope there is a message, never a verdict.
+    const scope = checkScope(ownText);
+    if (!scope.ok) {
+      abortRef.current?.abort();
+      resetResults();
+      setRunning(false);
+      setUnsupported(scope.message);
+      return;
+    }
+    setExampleId(usingSample ? sampleExampleId : null);
+    run({ runtime: ownText, config: {}, exampleId: usingSample ? sampleExampleId : null, live: !usingSample && liveEnabled });
   }
 
   async function toggleWhatIf(next: WhatIfState) {
@@ -497,6 +566,14 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     // A deep link (?example=a, or the full case id) opens that case instead of the default, without scrolling.
     const wanted = new URLSearchParams(window.location.search).get("example")?.trim().toLowerCase();
     const linked = wanted ? examples.find((e) => e.id === wanted || e.id.startsWith(`${wanted}-`)) : undefined;
+    // ?check opens the check-your-own-server steps, with nothing running.
+    if (new URLSearchParams(window.location.search).has("check")) {
+      queueMicrotask(() => {
+        setMode("own");
+        setRunning(false);
+      });
+      return;
+    }
     if (linked && linked.id !== initial.id) {
       queueMicrotask(() => pickExample(linked, { scroll: false }));
       return;
@@ -514,106 +591,147 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
   const scanner = baseline?.overall ?? null;
   const byPackage = new Map<string, PackageFinding[]>();
   for (const f of report?.findings ?? []) byPackage.set(f.package, [...(byPackage.get(f.package) ?? []), f]);
-  const canRun = !!split["php-v.txt"] || !!split["dpkg.txt"] || Object.values(config).some((t) => t.trim());
 
   return (
     <div className="space-y-6">
-      <section>
-        <div className="flex flex-wrap gap-2">
-          {examples.map((ex) => (
-            <button
-              key={ex.id}
-              type="button"
-              disabled={running}
-              onClick={() => pickExample(ex)}
-              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition disabled:opacity-60 ${
-                exampleId === ex.id
-                  ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
-                  : "border-neutral-300 hover:border-neutral-500 dark:border-neutral-700 dark:hover:border-neutral-500"
-              }`}
-            >
-              <span className={`size-2 rounded-full ${DOT[ex.expected] ?? "bg-neutral-400"}`} aria-hidden />
-              {ex.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      <div role="group" aria-label="Choose what to do" className="grid grid-cols-2 gap-2">
+        {([["examples", "See how it works"], ["own", "Check your own server"]] as const).map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={mode === m}
+            onClick={() => switchMode(m)}
+            className={`rounded-xl border px-3 py-3 text-sm font-medium transition ${
+              mode === m
+                ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
+                : "border-neutral-300 hover:border-neutral-500 dark:border-neutral-700 dark:hover:border-neutral-500"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <details
-        open={inputsOpen}
-        onToggle={(e) => setInputsOpen((e.target as HTMLDetailsElement).open)}
-        className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800"
-      >
-        <summary className="cursor-pointer text-sm font-medium">Edit inputs, or analyse your own server</summary>
-        <div className="mt-4 space-y-4">
-          <label className="block">
-            <span className="text-sm text-neutral-700 dark:text-neutral-300">Run this on the server and paste the output:</span>
-            <code className="mt-1 block break-all rounded-lg bg-neutral-100 px-3 py-2 text-xs dark:bg-neutral-900">{RUNTIME_COMMAND}</code>
-            <textarea
-              value={runtime}
-              onChange={(e) => { setRuntime(e.target.value); setExampleId(null); }}
-              rows={10}
-              spellCheck={false}
-              placeholder="Paste the output here"
-              className="mt-2 w-full resize-y rounded-lg border border-neutral-300 bg-white p-2 font-mono text-xs leading-5 outline-none focus:border-neutral-500 dark:border-neutral-700 dark:bg-neutral-900"
-            />
-            <span className="mt-1 block text-xs text-neutral-500">
-              Detected: os-release {split["os-release"] ? "✓" : "missing"} · php -v {split["php-v.txt"] ? "✓" : "missing"} · dpkg {split.packages} PHP package{split.packages === 1 ? "" : "s"}
-            </span>
-          </label>
+      {mode === "examples" && (
+        <section className="space-y-3">
+          <p className="text-sm leading-6 text-neutral-700 dark:text-neutral-300">
+            Pick an example, then see what a version scanner says next to what FirstWatch finds, and why. These are recorded runs; no model is called.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {examples.map((ex) => (
+              <button
+                key={ex.id}
+                type="button"
+                disabled={running}
+                onClick={() => pickExample(ex)}
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition disabled:opacity-60 ${
+                  exampleId === ex.id
+                    ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
+                    : "border-neutral-300 hover:border-neutral-500 dark:border-neutral-700 dark:hover:border-neutral-500"
+                }`}
+              >
+                <span className={`size-2 rounded-full ${DOT[ex.expected] ?? "bg-neutral-400"}`} aria-hidden />
+                {ex.label}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
-          <details className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-            <summary className="cursor-pointer text-sm">Add config (optional, for mitigations)</summary>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {CONFIG_FILES.map((f) => (
-                <label key={f.file} className="block">
-                  <code className="text-xs text-neutral-700 dark:text-neutral-300">{f.label}</code>
-                  <textarea
-                    value={config[f.file] ?? ""}
-                    onChange={(e) => { setConfig((c) => ({ ...c, [f.file]: e.target.value })); setExampleId(null); }}
-                    rows={5}
-                    spellCheck={false}
-                    className="mt-1 w-full resize-y rounded-lg border border-neutral-300 bg-white p-2 font-mono text-xs leading-5 outline-none focus:border-neutral-500 dark:border-neutral-700 dark:bg-neutral-900"
-                  />
-                </label>
-              ))}
-            </div>
-          </details>
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              disabled={!canRun || running}
-              onClick={() => run({ runtime, config, exampleId, live: false })}
-              className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900"
-            >
-              {exampleId ? "Replay this example" : "Run (scanner and parsing only)"}
-            </button>
-            {liveEnabled && (
+      {mode === "own" && (
+        <section className="space-y-5 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+          <p className="text-sm font-medium">{SCOPE_LINE}</p>
+          <ol className="space-y-5">
+            <Step n={1} title="Run this one command on the server">
+              <div className="flex items-start gap-2 rounded-lg bg-neutral-100 px-3 py-2 dark:bg-neutral-900">
+                <code className="min-w-0 flex-1 break-words text-xs leading-5">{RUNTIME_COMMAND}</code>
+                <CopyButton text={RUNTIME_COMMAND} />
+              </div>
+              <p className="mt-1 text-xs text-neutral-500">It only reads: the distribution, the PHP version, and the installed PHP packages.</p>
+            </Step>
+            <Step n={2} title="Paste its output">
+              <textarea
+                value={ownText}
+                onChange={(e) => setOwnText(e.target.value)}
+                rows={8}
+                spellCheck={false}
+                aria-label="Command output"
+                placeholder="Paste the whole output here"
+                className="w-full resize-y rounded-lg border border-neutral-300 bg-white p-2 font-mono text-xs leading-5 outline-none focus:border-neutral-500 dark:border-neutral-700 dark:bg-neutral-900"
+              />
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-neutral-500">
+                  Detected: os-release {ownSplit["os-release"] ? "✓" : "missing"} · php -v {ownSplit["php-v.txt"] ? "✓" : "missing"} · {ownSplit.packages} PHP package{ownSplit.packages === 1 ? "" : "s"}
+                </span>
+                {sample && (
+                  <button type="button" onClick={() => setOwnText(sample.runtime)} className="text-xs text-neutral-700 underline underline-offset-2 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100">
+                    Try with sample output
+                  </button>
+                )}
+              </div>
+            </Step>
+            <Step n={3} title="Check">
               <button
                 type="button"
-                disabled={!canRun || running}
-                onClick={() => run({ runtime, config, exampleId, live: true })}
-                className="rounded-lg border border-neutral-400 px-4 py-2 text-sm font-medium hover:border-neutral-700 disabled:opacity-40 dark:border-neutral-600"
+                disabled={!ownText.trim() || running}
+                onClick={check}
+                className="rounded-lg bg-neutral-900 px-5 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900"
               >
-                Run live
+                {running ? "Checking…" : "Check"}
               </button>
-            )}
-          </div>
-        </div>
-      </details>
+              <p className="mt-2 text-xs leading-5 text-neutral-500">
+                {usingSample
+                  ? `This is sample output from the "${sample?.label}" example, so Check shows its recorded run. No model call.`
+                  : liveEnabled
+                    ? "The version scanner result and parsing appear instantly. The AI check follows and takes 2–4 minutes."
+                    : "The version scanner result and parsing appear instantly. The AI check is switched off on this deployment."}
+              </p>
+            </Step>
+          </ol>
+          <p className="border-t border-neutral-100 pt-3 text-xs leading-5 text-neutral-500 dark:border-neutral-800">
+            Privacy: FirstWatch doesn&apos;t save or log what you paste. The AI check sends the distribution and PHP package versions to OSV and to the model
+            provider (Groq), and keeps your IP address for {ipWindowMinutes} minutes to enforce its rate limit.
+          </p>
+        </section>
+      )}
 
       <div ref={resultsRef} className="scroll-mt-6 space-y-4">
-        {example && <p className="text-sm leading-6 text-neutral-700 dark:text-neutral-300">{example.blurb}</p>}
+        {mode === "examples" && example && <p className="text-sm leading-6 text-neutral-700 dark:text-neutral-300">{example.blurb}</p>}
+        {unsupported && (
+          <section className="rounded-xl border border-neutral-300 bg-neutral-50 p-4 dark:border-neutral-700 dark:bg-neutral-900">
+            <p className="text-sm font-medium">No verdict</p>
+            <p className="mt-1 text-sm leading-6 text-neutral-800 dark:text-neutral-200">{unsupported}</p>
+          </section>
+        )}
         {notice && (
           <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200">{notice}</p>
         )}
         {running && !report && !liveRun && <p className="animate-pulse text-sm text-neutral-500">Loading the recorded run…</p>}
+        {baseline && !report && (liveRun || !running) && (
+          <section className="rounded-xl border border-neutral-300 p-4 dark:border-neutral-700">
+            <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Instant · code only</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-neutral-600 dark:text-neutral-400">Version scanner</span>
+              <Badge verdict={baseline.overall} />
+              <span className="text-xs text-neutral-500">from &quot;{scannerFrom ?? "no version"}&quot;</span>
+            </div>
+            {parsed && <p className="mt-2 text-sm leading-6 text-neutral-700 dark:text-neutral-300">Parsed: {parsed}</p>}
+            {failure && <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">{failure}</p>}
+            {mode === "own" && !running && !liveRun && !notice && !failure && (
+              <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">
+                No FirstWatch verdict yet: that needs the AI check, which is switched off on this deployment. The badge above is what a version scanner would say.
+              </p>
+            )}
+          </section>
+        )}
+        {!baseline && !running && failure && (
+          <p className="rounded-xl border border-neutral-300 p-4 text-sm leading-6 text-neutral-800 dark:border-neutral-700 dark:text-neutral-200">{failure}</p>
+        )}
         {running && liveRun && (
           <section className="rounded-xl border border-sky-300 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/40">
             <p className="text-sm font-medium text-sky-900 dark:text-sky-200">
-              Live run in progress · {startedAt ? `${Math.floor((now - startedAt) / 60000)}:${String(Math.floor(((now - startedAt) % 60000) / 1000)).padStart(2, "0")}` : "0:00"}
-              <span className="ml-2 font-normal text-sky-800/80 dark:text-sky-300/80">Usually 2 to 4 minutes: requests are paced to the free tier&apos;s rate limit.</span>
+              AI check in progress · {startedAt ? `${Math.floor((now - startedAt) / 60000)}:${String(Math.floor(((now - startedAt) % 60000) / 1000)).padStart(2, "0")}` : "0:00"}
+              <span className="ml-2 font-normal text-sky-800/80 dark:text-sky-300/80">Takes 2–4 minutes: requests are paced to the free tier&apos;s rate limit.</span>
             </p>
             <ol className="mt-3 space-y-1 font-mono text-xs leading-5">
               {log.length === 0 && <li className="animate-pulse text-neutral-500">Connecting…</li>}
@@ -621,18 +739,6 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
             </ol>
           </section>
         )}
-        {!running && !report && (failure || baseline) && (
-          <div className="rounded-xl border border-neutral-300 p-4 dark:border-neutral-700">
-            {baseline && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-neutral-600 dark:text-neutral-400">Version scanner</span>
-                <Badge verdict={baseline.overall} />
-              </div>
-            )}
-            {failure && <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">{failure}</p>}
-          </div>
-        )}
-
         {report && (
           <>
             <ResultBanner report={report} scanner={scanner} ecosystem={ecosystem} held={split.held} />
@@ -652,7 +758,7 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
               ) : (
                 <span>Run</span>
               )}
-              {recorded && liveEnabled && (
+              {recorded && liveEnabled && mode === "examples" && (
                 <button type="button" disabled={running} onClick={() => run({ runtime, config, exampleId, live: true })} className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">
                   Run it live
                 </button>
@@ -660,7 +766,7 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
               {rawUrl && <a href={rawUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">View raw report JSON</a>}
             </div>
 
-            {recorded && exampleId && (
+            {recorded && exampleId && mode === "examples" && (
               <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
                 <h3 className="text-sm font-medium">What if the configuration changed?</h3>
                 <p className="mt-1 text-xs text-neutral-500">Re-checked instantly by the same safety engine, against this run&apos;s recorded evidence. No model call.</p>
