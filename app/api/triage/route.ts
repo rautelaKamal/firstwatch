@@ -22,7 +22,10 @@ import { emptyUsage, type TokenUsage } from "@/lib/llm";
 import { parse_stack } from "@/lib/tools";
 
 // A live run is paced to the provider's per-minute budget and takes minutes.
+// Vercel Hobby with Fluid compute: 300 s default and maximum (docs, 2026-08-24).
 export const maxDuration = 300;
+// Stop starting requests this long before the limit, so the run ends with a message, not a cut stream.
+const DEADLINE_MARGIN_MS = 20_000;
 
 const MAX_FILES = 12;
 const MAX_FILE_CHARS = 200_000;
@@ -76,6 +79,7 @@ async function* replay(exampleId: string | undefined, files: Record<string, stri
 }
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
   const ip = clientIp(req);
   let body: { files?: unknown; exampleId?: unknown; live?: unknown; model?: unknown };
   try {
@@ -115,7 +119,7 @@ export async function POST(req: Request) {
           if (!decision.ok) send({ type: "live_unavailable", reason: decision.reason, message: decision.message });
         }
         const events = live
-          ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources, model })
+          ? runAgent({ stack: spec.stack, files, target: spec.target, cve: spec.cve, cves: spec.cves, sources: spec.sources, model, deadline: startedAt + maxDuration * 1000 - DEADLINE_MARGIN_MS })
           : replay(exampleId, files);
         for await (const event of events) send(event);
       } catch (e) {

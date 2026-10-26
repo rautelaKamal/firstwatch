@@ -1146,6 +1146,8 @@ export type AgentInput = {
   baseUrl?: string;
   apiKey?: string;
   maxIterations?: number;
+  /** Epoch ms by which the run must finish; no request starts that would cross it. */
+  deadline?: number;
 };
 
 /* ------------------------------------------------------------------ *
@@ -1155,6 +1157,7 @@ export type AgentInput = {
 export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, void, void> {
   const startedAt = Date.now();
   const cfg = llmConfig({ model: input.model, baseUrl: input.baseUrl, apiKey: input.apiKey });
+  if (cfg && input.deadline) cfg.deadline = input.deadline;
   if (!cfg) {
     yield { type: "error", message: "No API key. Set LLM_API_KEY (or GROQ_API_KEY) in .env.local." };
     return;

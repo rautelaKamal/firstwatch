@@ -36,6 +36,8 @@ export type LlmConfig = {
   reasoningEffort: string | null;
   /** Used when the model's daily budget runs out. Groq budgets each model separately. */
   fallbackModel: string | null;
+  /** Epoch ms after which no request is started, so a hosted run ends cleanly before the platform kills it. */
+  deadline?: number;
 };
 
 const effortFor = (model: string) => process.env.LLM_REASONING_EFFORT ?? (/gpt-oss/i.test(model) ? "low" : null);
@@ -233,11 +235,15 @@ export async function* callModel(cfg: LlmConfig, req: ChatRequest): AsyncGenerat
       error: `Request estimated at ~${estimated.toLocaleString()} tokens, over the ${cfg.maxRequestTokens.toLocaleString()} per-request limit. It was not sent.`,
     };
   }
+  const pastDeadline = (ms: number) => cfg.deadline !== undefined && Date.now() + ms > cfg.deadline;
+  const timeUp: ChatResult = { ok: false, error: "The run reached the hosting time limit before it could finish." };
   for (let attempt = 0; attempt < 5; attempt++) {
     for (let w = planWait(cfg, estimated); w.ms > 0; w = planWait(cfg, estimated)) {
+      if (pastDeadline(w.ms)) return timeUp;
       yield { type: "waiting", ms: w.ms, reason: w.reason };
       await sleep(w.ms);
     }
+    if (pastDeadline(0)) return timeUp;
     const r = await chat(cfg, req);
     if (r.ok || r.status !== 429) return r;
     // A daily limit will not clear by waiting: move to the fallback model, once.
@@ -249,6 +255,7 @@ export async function* callModel(cfg: LlmConfig, req: ChatRequest): AsyncGenerat
       continue;
     }
     const ms = r.retryAfterMs ?? 10_000;
+    if (pastDeadline(ms)) return timeUp;
     yield { type: "waiting", ms, reason: "the provider returned 429 (rate limited)" };
     await sleep(ms);
   }

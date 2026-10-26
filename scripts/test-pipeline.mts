@@ -554,6 +554,26 @@ await test("<think> blocks are stripped from a reply", async () => {
   if (r.ok) assert.equal(r.content, '{"ok":true}');
 });
 
+await test("a request that would wait past the deadline is not started", async () => {
+  resetBudget();
+  let sent = 0;
+  stubFetch(() => {
+    sent++;
+    return completion(7_000);
+  });
+  const c = llmConfig({ apiKey: "k", baseUrl: "https://llm.invalid/v1", tpm: 8000 })!;
+  await chat(c, { messages: [{ role: "user", content: "fill the minute" }], maxTokens: 10 });
+  c.deadline = Date.now() + 5_000; // the window needs about a minute to free up
+  const it = callModel(c, { messages: [{ role: "user", content: "hi" }], maxTokens: 2_000 });
+  let step = await it.next();
+  while (!step.done) step = await it.next();
+  globalThis.fetch = realFetch;
+  resetBudget();
+  assert.equal(step.value.ok, false);
+  assert.match((step.value as { error: string }).error, /time limit/);
+  assert.equal(sent, 1, "only the request that filled the window was sent");
+});
+
 /* ================================================================== *
  * Live-run limits on a deployed site
  * ================================================================== */
