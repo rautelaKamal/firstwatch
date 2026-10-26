@@ -1,0 +1,74 @@
+{
+  "cves": [
+    "CVE-2026-109618",
+    "CVE-2026-109619"
+  ],
+  "distro": [],
+  "ranges": [
+    {
+      "version": "8.1.33",
+      "range": ">= 7.3.0 and < 8.2.35",
+      "inRange": true,
+      "cves": [
+        "CVE-2026-109618"
+      ]
+    },
+    {
+      "version": "8.1.33",
+      "range": ">= 8.3.0 and < 8.3.36",
+      "inRange": false,
+      "cves": [
+        "CVE-2026-109618"
+      ]
+    },
+    {
+      "version": "8.1.33",
+      "range": ">= 8.4.0 and < 8.4.27",
+      "inRange": false,
+      "cves": [
+        "CVE-2026-109618"
+      ]
+    },
+    {
+      "version": "8.1.33",
+      "range": ">= 8.5.0 and < 8.5.12",
+      "inRange": false,
+      "cves": [
+        "CVE-2026-109618"
+      ]
+    },
+    {
+      "version": "8.1.33",
+      "range": ">= 5.4.0 and < 8.2.35",
+      "inRange": true,
+      "cves": [
+        "CVE-2026-109619"
+      ]
+    },
+    {
+      "version": "8.1.33",
+      "range": ">= 8.3.0 and < 8.3.36",
+      "inRange": false,
+      "cves": [
+        "CVE-2026-109619"
+      ]
+    },
+    {
+      "version": "8.1.33",
+      "range": ">= 8.4.0 and < 8.4.27",
+      "inRange": false,
+      "cves": [
+        "CVE-2026-109619"
+      ]
+    },
+    {
+      "version": "8.1.33",
+      "range": ">= 8.5.0 and < 8.5.12",
+      "inRange": false,
+      "cves": [
+        "CVE-2026-109619"
+      ]
+    }
+  ],
+  "rebuiltBy": "scripts/build-ledgers.mts: the recording's packages, re-checked with the same code tools (OSV, version_in_range); no model call"
+}

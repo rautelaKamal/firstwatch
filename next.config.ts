@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     // Examples and saved runs for replay, plus the committed cache seed (digests, NVD, advisory pages).
     "/api/triage": ["./eval/cases/**/*", "./fixtures/**/*", "./data/cache/**/*"],
+    // Re-evaluation reads saved runs, their ledgers and the cached advisory pages.
+    "/api/whatif": ["./eval/cases/**/*", "./fixtures/**/*", "./data/cache/**/*"],
   },
   partialPrefetching: true,
   turbopack: {

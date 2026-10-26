@@ -92,3 +92,12 @@ export function savedRun(id: string | undefined): { report: unknown; usage?: { t
   const saved = JSON.parse(readFileSync(path, "utf8")) as { report: unknown; usage?: { total?: number }; digestUsage?: unknown; model?: string };
   return saved.report ? saved : null;
 }
+
+/** The ledger a saved run was checked against: recorded with the run, or rebuilt by scripts/build-ledgers.mts. */
+export function savedLedger(id: string | undefined): import("./agent").SavedLedger | null {
+  if (!id) return null;
+  const run = savedRun(id) as { ledger?: import("./agent").SavedLedger } | null;
+  if (run?.ledger) return run.ledger;
+  const path = join(process.cwd(), "fixtures", `${id}.ledger.json`);
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+}

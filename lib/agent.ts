@@ -1119,8 +1119,13 @@ export type AgentEvent =
       ms: number;
       usage: TokenUsage;
       digestUsage: TokenUsage;
+      /** What the tools established: saved with a recording so the engine can re-evaluate it without the model. */
+      ledger?: SavedLedger;
     }
   | { type: "error"; message: string; usage?: TokenUsage; digestUsage?: TokenUsage };
+
+/** The part of a run's ledger worth saving. Facts and fetched text are rebuilt from the files and the cache. */
+export type SavedLedger = { cves: string[]; distro: Ledger["distro"]; ranges: Ledger["ranges"]; rebuiltBy?: string };
 
 export type AgentInput = {
   stack: string;
@@ -1290,7 +1295,10 @@ export async function* runAgent(input: AgentInput): AsyncGenerator<AgentEvent, v
         const { report: enforced, log } = enforceInvariants(stamped, ledger);
         if (log.length) yield { type: "enforced", downgrades: log };
         const report = annotate(enforced, ledger, digests);
-        yield { type: "final", iteration, report, text, toolCalls, ms: Date.now() - startedAt, usage, digestUsage };
+        yield {
+          type: "final", iteration, report, text, toolCalls, ms: Date.now() - startedAt, usage, digestUsage,
+          ledger: { cves: ledger.cves, distro: ledger.distro, ranges: ledger.ranges },
+        };
         return;
       }
       if (!repaired && !lastTurn) {

@@ -1,0 +1,46 @@
+{
+  "cves": [
+    "CVE-2026-109618",
+    "CVE-2026-109619"
+  ],
+  "distro": [
+    {
+      "cve": "CVE-2026-109618",
+      "ecosystem": "Ubuntu:22.04:LTS",
+      "package": "php8.1-cli",
+      "sourcePackage": "php8.1",
+      "version": "8.1.2-1ubuntu2.28",
+      "status": "fixed",
+      "fixedVersion": "8.1.2-1ubuntu2.28"
+    },
+    {
+      "cve": "CVE-2026-109619",
+      "ecosystem": "Ubuntu:22.04:LTS",
+      "package": "php8.1-cli",
+      "sourcePackage": "php8.1",
+      "version": "8.1.2-1ubuntu2.28",
+      "status": "fixed",
+      "fixedVersion": "8.1.2-1ubuntu2.28"
+    },
+    {
+      "cve": "CVE-2026-109618",
+      "ecosystem": "Ubuntu:22.04:LTS",
+      "package": "libapache2-mod-php8.1",
+      "sourcePackage": "php8.1",
+      "version": "8.1.2-1ubuntu2.28",
+      "status": "fixed",
+      "fixedVersion": "8.1.2-1ubuntu2.28"
+    },
+    {
+      "cve": "CVE-2026-109619",
+      "ecosystem": "Ubuntu:22.04:LTS",
+      "package": "libapache2-mod-php8.1",
+      "sourcePackage": "php8.1",
+      "version": "8.1.2-1ubuntu2.28",
+      "status": "fixed",
+      "fixedVersion": "8.1.2-1ubuntu2.28"
+    }
+  ],
+  "ranges": [],
+  "rebuiltBy": "scripts/build-ledgers.mts: the recording's packages, re-checked with the same code tools (OSV, version_in_range); no model call"
+}

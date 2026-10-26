@@ -10,6 +10,24 @@ type Example = { id: string; label: string; blurb: string; expected: string; run
 type Event = { type: string; [key: string]: unknown };
 type LogLine = { tone: "info" | "tool" | "ok" | "warn" | "error"; text: string };
 type Recorded = { at: string | null; model: string; tokens: number | null };
+type LiveMeta = { ms: number; tokens: number; model: string };
+type WhatIfState = { memory: boolean; rlimit: boolean };
+
+const duration = (ms: number) => {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+};
+
+/** The example's config with the what-if toggles applied. */
+function applyWhatIf(config: Record<string, string>, w: WhatIfState): Record<string, string> {
+  const out = { ...config };
+  if (w.memory) {
+    const lines = (out["php.ini"] ?? "").split("\n").filter((l) => !/^\s*memory_limit\s*=/.test(l));
+    out["php.ini"] = [...lines, "memory_limit = -1"].join("\n").trim();
+  }
+  if (w.rlimit) out.Dockerfile = `${out.Dockerfile ?? ""}\nRUN ulimit -v 2097152`.trim();
+  return out;
+}
 
 const CONFIG_FILES = [
   { file: "Dockerfile", label: "Dockerfile" },
@@ -80,7 +98,13 @@ function explain(reason: string): string {
   m = reason.match(/^An alarm needs no permission\. Supported by (\S+) inside "(.+?)"(?:, the range stated for (.+?)|, a range no fetched source states)?\.$/);
   if (m) return `Version ${m[1]} falls inside the affected range ${m[2]}${m[3] ? `, as published for ${m[3]}` : ""}.`;
   if (/^An alarm needs no permission\. No supporting tool result/.test(reason)) return "Reported as affected; no tool result was recorded to back the alarm, so treat it as unconfirmed.";
-  m = reason.match(/^Range result: (\S+) is outside "(.+?)", read in (.+?), which covers .*$/);
+  m = reason.match(/^Affected per OSV row (\S+) (\S+) (\S+) affected; mitigated by (\S+?)=(\S+), quoted from (\S+) and set at (\S+?); installed version read from (.+?)\.$/);
+  if (m) {
+    const [, eco, src, ver, setting, value, from, where] = m;
+    const doc = from.match(/GHSA-[a-z0-9-]+/i)?.[0] ?? from;
+    return `${eco.split(":")[0]}'s own security data lists ${src} ${ver} as still affected, but ${setting}=${value} is set (${where}), which ${doc} names as a mitigation. Exposure is reduced, not removed: patching is still the fix.`;
+  }
+    m = reason.match(/^Range result: (\S+) is outside "(.+?)", read in (.+?), which covers .*$/);
   if (m) return `Version ${m[1]} is outside the affected range ${m[2]}, as stated in ${m[3]}.`;
   if (/^UNVERIFIED asserts nothing/.test(reason)) return "There is not enough evidence to decide. What is missing is listed below.";
   return reason.replace(/; /g, ". ");
@@ -317,6 +341,11 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
   const [liveRun, setLiveRun] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(0);
+  const [liveMeta, setLiveMeta] = useState<LiveMeta | null>(null);
+  const [recordedReport, setRecordedReport] = useState<FirstWatchReport | null>(null);
+  const [whatIf, setWhatIf] = useState<WhatIfState>({ memory: false, rlimit: false });
+  const [whatIfResult, setWhatIfResult] = useState<{ label: string; changes: string[] } | null>(null);
+  const [whatIfBusy, setWhatIfBusy] = useState(false);
   const [inputsOpen, setInputsOpen] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
@@ -337,6 +366,10 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
     setNotice(null);
     setFailure(null);
     setLiveRun(opts.live);
+    setLiveMeta(null);
+    setRecordedReport(null);
+    setWhatIf({ memory: false, rlimit: false });
+    setWhatIfResult(null);
     setStartedAt(Date.now());
     setNow(Date.now());
     setInputsOpen(false);
@@ -352,6 +385,8 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
       Object.entries({ "os-release": parts["os-release"], "php-v.txt": parts["php-v.txt"], "dpkg.txt": parts["dpkg.txt"], ...opts.config }).filter(([, t]) => t.trim()),
     );
     const push = (l: LogLine | null) => l && setLog((prev) => [...prev, l]);
+    const t0 = Date.now();
+    let liveModel = "";
     try {
       const res = await fetch("/api/triage", {
         method: "POST",
@@ -380,7 +415,17 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
           if (event.type === "replay") setRecorded(event.recorded as Recorded);
           if (event.type === "live_unavailable") setNotice(String(event.message));
           if (event.type === "error") setFailure(String(event.message));
-          if (event.type === "final" && event.report) setReport(event.report as FirstWatchReport);
+          if (event.type === "start") liveModel = String(event.model ?? "");
+          if (event.type === "model_switch") liveModel = String(event.to ?? liveModel);
+          if (event.type === "final" && event.report) {
+            setReport(event.report as FirstWatchReport);
+            setRecordedReport(event.report as FirstWatchReport);
+            if (opts.live) {
+              const u = event.usage as { total?: number } | undefined;
+              const d = event.digestUsage as { total?: number } | undefined;
+              setLiveMeta({ ms: Number(event.ms ?? Date.now() - t0), tokens: (u?.total ?? 0) + (d?.total ?? 0), model: liveModel });
+            }
+          }
           push(describe(event));
         }
       }
@@ -388,6 +433,35 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
       push({ tone: "error", text: e instanceof Error ? e.message : String(e) });
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function toggleWhatIf(next: WhatIfState) {
+    setWhatIf(next);
+    if (!next.memory && !next.rlimit) {
+      setReport(recordedReport);
+      setWhatIfResult(null);
+      return;
+    }
+    if (!exampleId) return;
+    setWhatIfBusy(true);
+    const parts = splitRuntime(runtime);
+    const files = Object.fromEntries(
+      Object.entries({ "os-release": parts["os-release"], "php-v.txt": parts["php-v.txt"], "dpkg.txt": parts["dpkg.txt"], ...applyWhatIf(config, next) }).filter(([, t]) => t.trim()),
+    );
+    try {
+      const res = await fetch("/api/whatif", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ exampleId, files }) });
+      const body = (await res.json()) as { report?: FirstWatchReport; changes?: string[]; label?: string; error?: string };
+      if (body.report) {
+        setReport(body.report);
+        setWhatIfResult({ label: body.label ?? "Re-evaluated by the safety engine · no model call", changes: body.changes ?? [] });
+      } else {
+        setWhatIfResult({ label: body.error ?? "Re-evaluation failed", changes: [] });
+      }
+    } catch (e) {
+      setWhatIfResult({ label: e instanceof Error ? e.message : String(e), changes: [] });
+    } finally {
+      setWhatIfBusy(false);
     }
   }
 
@@ -554,13 +628,20 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
           <>
             <ResultBanner report={report} scanner={scanner} ecosystem={ecosystem} held={split.held} />
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-500">
-              {recorded ? (
+              {whatIfResult ? (
+                <span className="font-medium text-sky-800 dark:text-sky-300">{whatIfResult.label}</span>
+              ) : recorded ? (
                 <span>
                   Recorded live run · {recorded.at ? new Date(recorded.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "date unknown"} · {recorded.model}
                   {recorded.tokens ? ` · ${recorded.tokens.toLocaleString()} tokens` : ""}
                 </span>
+              ) : liveMeta ? (
+                <span>
+                  Live run · {duration(liveMeta.ms)}
+                  {liveMeta.model ? ` · ${liveMeta.model}` : ""} · {liveMeta.tokens.toLocaleString()} tokens
+                </span>
               ) : (
-                <span>Live run</span>
+                <span>Run</span>
               )}
               {recorded && liveEnabled && (
                 <button type="button" disabled={running} onClick={() => run({ runtime, config, exampleId, live: true })} className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">
@@ -569,6 +650,28 @@ export default function Triage({ examples, defaultExampleId, liveEnabled }: { ex
               )}
               {rawUrl && <a href={rawUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">View raw report JSON</a>}
             </div>
+
+            {recorded && exampleId && (
+              <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+                <h3 className="text-sm font-medium">What if the configuration changed?</h3>
+                <p className="mt-1 text-xs text-neutral-500">Re-checked instantly by the same safety engine, against this run&apos;s recorded evidence. No model call.</p>
+                <div className="mt-3 space-y-2 text-sm">
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" className="mt-0.5 size-4" checked={whatIf.memory} disabled={whatIfBusy} onChange={(e) => toggleWhatIf({ ...whatIf, memory: e.target.checked })} />
+                    <span>Set <code className="text-xs">memory_limit = -1</code> in php.ini <span className="text-neutral-500">(GHSA-w8hw&apos;s main configuration mitigation)</span></span>
+                  </label>
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" className="mt-0.5 size-4" checked={whatIf.rlimit} disabled={whatIfBusy} onChange={(e) => toggleWhatIf({ ...whatIf, rlimit: e.target.checked })} />
+                    <span>Cap memory with <code className="text-xs">ulimit -v</code> (RLIMIT_AS) in the Dockerfile <span className="text-neutral-500">(the advisory says not to)</span></span>
+                  </label>
+                </div>
+                {whatIfResult && (
+                  <ul className="mt-3 space-y-0.5 text-xs text-neutral-700 dark:text-neutral-300">
+                    {whatIfResult.changes.length ? whatIfResult.changes.map((c, i) => <li key={i}>{c}</li>) : <li>No verdict changed.</li>}
+                  </ul>
+                )}
+              </section>
+            )}
 
             {[...byPackage].map(([name, fs]) => <PackageCard key={name} name={name} findings={fs} scanner={scanner} ecosystem={ecosystem} />)}
 

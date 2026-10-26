@@ -1,0 +1,46 @@
+{
+  "cves": [
+    "CVE-2026-109618",
+    "CVE-2026-109619"
+  ],
+  "distro": [
+    {
+      "cve": "CVE-2026-109618",
+      "ecosystem": "Debian:13",
+      "package": "php8.4-cli",
+      "sourcePackage": "php8.4",
+      "version": "8.4.27-1~deb13u1",
+      "status": "fixed",
+      "fixedVersion": "8.4.27-1~deb13u1"
+    },
+    {
+      "cve": "CVE-2026-109619",
+      "ecosystem": "Debian:13",
+      "package": "php8.4-cli",
+      "sourcePackage": "php8.4",
+      "version": "8.4.27-1~deb13u1",
+      "status": "fixed",
+      "fixedVersion": "8.4.27-1~deb13u1"
+    },
+    {
+      "cve": "CVE-2026-109618",
+      "ecosystem": "Debian:13",
+      "package": "php8.4-fpm",
+      "sourcePackage": "php8.4",
+      "version": "8.4.16-1~deb13u1",
+      "status": "affected",
+      "fixedVersion": "8.4.27-1~deb13u1"
+    },
+    {
+      "cve": "CVE-2026-109619",
+      "ecosystem": "Debian:13",
+      "package": "php8.4-fpm",
+      "sourcePackage": "php8.4",
+      "version": "8.4.16-1~deb13u1",
+      "status": "affected",
+      "fixedVersion": "8.4.27-1~deb13u1"
+    }
+  ],
+  "ranges": [],
+  "rebuiltBy": "scripts/build-ledgers.mts: the recording's packages, re-checked with the same code tools (OSV, version_in_range); no model call"
+}

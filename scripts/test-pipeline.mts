@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { chunkText, digestAdvisory, flattenDigest, focusOn, parseGhsa, renderDigest, verifyItems, type AdvisoryDigest } from "../lib/digest";
 import { allowLiveRun, resetLimits } from "../lib/limits";
 import { splitRuntime } from "../lib/runtime";
+import { reevaluate } from "../lib/whatif";
 import { scoreDigest } from "../lib/recall";
 import { callModel, chat, estimateRequest, llmConfig, planWait, resetBudget, type ChatMessage } from "../lib/llm";
 import { parse_stack } from "../lib/tools";
@@ -690,6 +691,83 @@ await test("splitRuntime lists packages dpkg shows as held, as in case g", () =>
   const dpkg = readFileSync("eval/cases/g-split-cli-patched-fpm-stale/dpkg.txt", "utf8");
   assert.deepEqual(splitRuntime(dpkg).held, ["php8.4-fpm"]);
   assert.deepEqual(splitRuntime(readFileSync("eval/cases/e-debian12-no-security-pocket/dpkg.txt", "utf8")).held, []);
+});
+
+/* ================================================================== *
+ * What-if: re-evaluation by the safety engine alone, no model, deterministic
+ * ================================================================== */
+
+const recording = (id: string) => {
+  const report = JSON.parse(readFileSync(`fixtures/${id}.json`, "utf8")).report as FirstWatchReport;
+  const ledger = JSON.parse(readFileSync(`fixtures/${id}.ledger.json`, "utf8"));
+  const dir = join("eval/cases", id);
+  const files: Record<string, string> = Object.fromEntries(readdirSync(dir).filter((f) => f !== "case.json").map((f) => [f, readFileSync(join(dir, f), "utf8")]));
+  return { report, ledger, files };
+};
+const withIni = (files: Record<string, string>, line: string | null) => {
+  const base = (files["php.ini"] ?? "").split("\n").filter((l) => !/^\s*memory_limit\s*=/.test(l));
+  return { ...files, "php.ini": [...base, ...(line ? [line] : [])].join("\n").trim() };
+};
+const withRlimit = (files: Record<string, string>) => ({ ...files, Dockerfile: `${files.Dockerfile ?? ""}\nRUN ulimit -v 2097152`.trim() });
+
+await test("what-if: every recording, unchanged, re-evaluates to exactly its recorded verdicts", () => {
+  for (const f of readdirSync("fixtures").filter((x) => !x.endsWith(".ledger.json"))) {
+    const { report, ledger, files } = recording(f.replace(".json", ""));
+    const out = reevaluate(report, ledger, files);
+    assert.equal(out.report.overall, report.overall, f);
+    assert.deepEqual(out.changes, [], f);
+  }
+});
+
+await test("what-if: memory_limit=-1 reduces only the CVE whose advisory states it (Debian 12)", () => {
+  const { report, ledger, files } = recording("e-debian12-no-security-pocket");
+  const out = reevaluate(report, ledger, withIni(files, "memory_limit = -1")).report;
+  for (const f of out.findings) {
+    if (f.cve === "CVE-2026-109618") {
+      assert.equal(f.verdict, "AFFECTED_MITIGATED", `${f.package} ${f.cve}`);
+      assert.ok(f.mitigations.some((m) => m.setting === "memory_limit" && m.source.includes("GHSA-w8hw")), "cites GHSA-w8hw");
+      assert.ok(f.allow_reason?.includes("mitigated by memory_limit=-1"));
+    } else {
+      assert.equal(f.verdict, "AFFECTED", `${f.package} ${f.cve}: GHSA-6wmf names other mitigations`);
+    }
+  }
+  assert.equal(out.overall, "AFFECTED", "one CVE still unmitigated");
+});
+
+await test("what-if: removing memory_limit=-1 from the mitigated 8.4 build makes it Affected again", () => {
+  const { report, ledger, files } = recording("h-upstream-84-mitigated");
+  const out = reevaluate(report, ledger, withIni(files, "memory_limit = 256M"));
+  assert.equal(out.report.findings.find((f) => f.cve === "CVE-2026-109618")?.verdict, "AFFECTED");
+  assert.equal(out.report.overall, "AFFECTED");
+  assert.ok(out.changes.some((c) => c.includes("Affected, exposure reduced → Affected")));
+});
+
+await test("what-if: an RLIMIT_AS limit adds a cited warning and changes no verdict", () => {
+  const { report, ledger, files } = recording("g-split-cli-patched-fpm-stale");
+  const out = reevaluate(report, ledger, withRlimit(files));
+  assert.equal(out.report.overall, report.overall);
+  const w = out.report.warnings?.find((x) => x.setting === "RLIMIT_AS");
+  assert.ok(w, "warning present");
+  assert.match(w.quote, /RLIMIT_AS/);
+  assert.ok(out.changes.some((c) => c.startsWith("Warning added: RLIMIT_AS")));
+});
+
+await test("what-if: 10 runs of each toggle combination give byte-identical reports, with no network", async () => {
+  let calls = 0;
+  stubFetch(() => {
+    calls++;
+    throw new Error("the what-if must not touch the network");
+  });
+  try {
+    const { report, ledger, files } = recording("e-debian12-no-security-pocket");
+    for (const variant of [files, withIni(files, "memory_limit = -1"), withRlimit(files), withRlimit(withIni(files, "memory_limit = -1"))]) {
+      const outputs = new Set(Array.from({ length: 10 }, () => JSON.stringify(reevaluate(report, ledger, variant))));
+      assert.equal(outputs.size, 1, "all 10 identical");
+    }
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 /* --- report ------------------------------------------------------- */

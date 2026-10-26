@@ -79,6 +79,11 @@ export function cachedCveNow(id: string): CveRecord | null {
   return cacheGetStale<CveRecord>(`nvd-${id.toUpperCase()}`);
 }
 
+/** A cached advisory page, however old, without touching the network. */
+export function cachedAdvisoryNow(url: string): Advisory | null {
+  return cacheGetStale<Advisory>(`advisory-${hash(url)}`);
+}
+
 /** The raw advisory page, fetched once a day at most. */
 export async function cachedAdvisory(url: string): Promise<(Advisory & { cached: boolean }) | Fail> {
   const key = `advisory-${hash(url)}`;

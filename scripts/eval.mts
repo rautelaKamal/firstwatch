@@ -178,7 +178,7 @@ async function runFirstWatch(k: Loaded): Promise<Result> {
       out.usage = e.usage;
       out.digest = e.digestUsage;
       if (!e.report) out.note = e.reportError ?? "no valid report";
-      writeFileSync(join(OUT_DIR, `${k.id}.firstwatch.json`), JSON.stringify({ case: k.id, model: modelUsed, report: e.report, raw: e.report ? undefined : e.text, usage: e.usage, digestUsage: e.digestUsage }, null, 2));
+      writeFileSync(join(OUT_DIR, `${k.id}.firstwatch.json`), JSON.stringify({ case: k.id, model: modelUsed, ms: e.ms, report: e.report, raw: e.report ? undefined : e.text, usage: e.usage, digestUsage: e.digestUsage, ledger: e.ledger }, null, 2));
     }
   }
   out.ms = Date.now() - started;
