@@ -135,7 +135,7 @@ async function dryRun(cases: Loaded[]): Promise<number> {
       continue;
     }
     console.log(`  ${dim("stack    ")} ${parsed.summary}`);
-    console.log(`  ${dim("baseline ")} ${base.report.overall} from "${base.version ?? "nothing"}" ${baseOk ? green("(as recorded)") : red(`(case.json says ${k.baseline_expected})`)}`);
+    console.log(`  ${dim("version-string")} ${base.report.overall} from "${base.version ?? "nothing"}" ${baseOk ? green("(as recorded)") : red(`(case.json says ${k.baseline_expected})`)}`);
     if (!baseOk) problems++;
   }
   console.log(`\n${problems ? red(`${problems} problems`) : green("fixtures and baseline consistent")} ${dim("(no model calls made)")}`);
@@ -207,8 +207,8 @@ async function liveRun(cases: Loaded[]) {
     rows.push({ k, fw, base, fwG, baseG, mentioned });
 
     const both = mergeUsage(fw.usage, fw.digest);
-    console.log(`  ${mark(fwG)} firstwatch: ${label(fw.verdict)}${fwG.unsafe ? red("  UNSAFE") : ""} ${dim(`${fw.toolCalls} tool calls, ${ms(fw.ms)}, ${fw.downgrades} downgrades`)}`);
-    console.log(`  ${mark(baseG)} scanner:    ${label(base)}${baseG.unsafe ? red("  UNSAFE") : ""} ${dim("deterministic code, 0 tokens")}`);
+    console.log(`  ${mark(fwG)} firstwatch:     ${label(fw.verdict)}${fwG.unsafe ? red("  UNSAFE") : ""} ${dim(`${fw.toolCalls} tool calls, ${ms(fw.ms)}, ${fw.downgrades} downgrades`)}`);
+    console.log(`  ${mark(baseG)} version-string: ${label(base)}${baseG.unsafe ? red("  UNSAFE") : ""} ${dim("deterministic code, 0 tokens")}`);
     console.log(`  ${dim("tokens")} agent ${n(fw.usage.total)} in ${fw.usage.requests} requests; digests ${n(fw.digest.total)} in ${fw.digest.requests}; largest request ${n(both.maxRequest)}`);
     for (const r of both.perRequest) console.log(`    ${dim(r.label.padEnd(12))} ${n(r.total).padStart(6)} tokens  ${dim(`(${n(r.prompt)} in, ${n(r.completion)} out, estimated ${n(r.estimated)})`)}`);
     if (fw.report?.summary) console.log(`  ${dim(fw.report.summary.slice(0, 300))}`);
@@ -226,8 +226,8 @@ async function liveRun(cases: Loaded[]) {
     if (fw.note) console.log(`  ${red("note")} ${fw.note.slice(0, 300)}`);
   }
 
-  console.log(`\n${bold("scorecard")}  ${dim("FirstWatch vs a version scanner, same cases")}`);
-  console.log(dim(`  ${"case".padEnd(32)}${"expected".padEnd(28)}${"firstwatch".padEnd(28)}scanner`));
+  console.log(`\n${bold("scorecard")}  ${dim("FirstWatch vs a version-string check, same cases")}`);
+  console.log(dim(`  ${"case".padEnd(32)}${"expected".padEnd(28)}${"firstwatch".padEnd(28)}version-string`));
   const cell = (g: Grade, v: Verdict | "none") => {
     const t = `${label(v)}${g.unsafe ? " !" : ""}`.padEnd(28);
     return g.status === "pass" ? green(t) : g.status === "soft" ? yellow(t) : red(t);
@@ -237,8 +237,8 @@ async function liveRun(cases: Loaded[]) {
   const tally = (gs: Grade[]) => ({ pass: gs.filter((g) => g.status === "pass").length, soft: gs.filter((g) => g.status === "soft").length, unsafe: gs.filter((g) => g.unsafe).length });
   const fwT = tally(rows.map((r) => r.fwG));
   const bT = tally(rows.map((r) => r.baseG));
-  console.log(`\n  firstwatch  ${fwT.pass}/${rows.length} exact, ${fwT.soft} acceptable, ${fwT.unsafe ? red(`${fwT.unsafe} unsafe`) : green("0 unsafe")}`);
-  console.log(`  scanner     ${bT.pass}/${rows.length} exact, ${bT.soft} acceptable, ${bT.unsafe ? red(`${bT.unsafe} unsafe`) : green("0 unsafe")}`);
+  console.log(`\n  firstwatch      ${fwT.pass}/${rows.length} exact, ${fwT.soft} acceptable, ${fwT.unsafe ? red(`${fwT.unsafe} unsafe`) : green("0 unsafe")}`);
+  console.log(`  version-string  ${bT.pass}/${rows.length} exact, ${bT.soft} acceptable, ${bT.unsafe ? red(`${bT.unsafe} unsafe`) : green("0 unsafe")}`);
 
   const agent = rows.reduce((a, r) => mergeUsage(a, r.fw.usage), emptyUsage());
   const digest = rows.reduce((a, r) => mergeUsage(a, r.fw.digest), emptyUsage());

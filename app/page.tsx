@@ -10,7 +10,7 @@ export default function Page() {
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">FirstWatch</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-400">
-          Version scanners read one version string. FirstWatch reads what is actually installed, checks each PHP package against
+          A version-string check compares one PHP version number to the advisory. FirstWatch reads what is actually installed, checks each PHP package against
           the distribution&apos;s own fix records for PHP2Shell (CVE-2026-109618 and CVE-2026-109619), and shows why every
           verdict stands.
         </p>

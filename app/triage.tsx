@@ -112,7 +112,7 @@ function describe(e: Event): LogLine | null {
   switch (e.type) {
     case "replay": return { tone: "warn", text: s(e.note) };
     case "live_unavailable": return { tone: "warn", text: s(e.message) };
-    case "baseline": return { tone: "info", text: `Version scanner: ${VERDICT_LABELS[(e.report as FirstWatchReport).overall]} from "${s(e.version) || "no version"}"` };
+    case "baseline": return { tone: "info", text: `Version-string check: ${VERDICT_LABELS[(e.report as FirstWatchReport).overall]} from "${s(e.version) || "no version"}"` };
     case "start": return { tone: "info", text: `Model ${s(e.model)}` };
     case "facts": return { tone: "info", text: `Parsed the stack: ${s(e.summary)}` };
     case "nvd": return { tone: "info", text: `NVD ${s(e.id)}: ${s(e.ranges)} PHP ranges${e.note ? ` (${s(e.note)})` : ""}` };
@@ -145,6 +145,16 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? "Copied" : "Copy"}
     </button>
+  );
+}
+
+/** What the comparison badge is, shown next to the first verdict box. */
+function ComparisonNote() {
+  return (
+    <p className="mt-2 text-xs leading-5 text-neutral-600 dark:text-neutral-400">
+      <span className="font-medium">What is this comparison?</span> A version-string check compares one PHP version number to the advisory, the way
+      banner-based scans and quick <code>php -v</code> checks do.
+    </p>
   );
 }
 
@@ -187,11 +197,12 @@ function ResultBanner({ report, scanner, ecosystem, held }: { report: FirstWatch
         </div>
         {scanner && (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-neutral-600 dark:text-neutral-400">Version scanner</span>
+            <span className="text-sm text-neutral-600 dark:text-neutral-400">Version-string check</span>
             <Badge verdict={scanner} />
           </div>
         )}
       </div>
+      {scanner && <ComparisonNote />}
       <p className="mt-4 text-lg font-semibold">
         {affected.length} of {pkgs.length} engine package{pkgs.length === 1 ? "" : "s"} affected
       </p>
@@ -262,7 +273,7 @@ function PackageCard({ name, findings, scanner, ecosystem }: { name: string; fin
         </div>
         <div className="flex flex-col items-start gap-1.5 text-xs sm:items-end">
           <div className="flex items-center gap-2"><span className="text-neutral-500">FirstWatch</span><Badge verdict={verdict} /></div>
-          {scanner && <div className="flex items-center gap-2"><span className="text-neutral-500">Scanner</span><Badge verdict={scanner} size="sm" /></div>}
+          {scanner && <div className="flex items-center gap-2"><span className="text-neutral-500">Version-string check</span><Badge verdict={scanner} size="sm" /></div>}
         </div>
       </div>
       <p className="mt-2 text-xs text-neutral-500">
@@ -615,7 +626,7 @@ export default function Triage({
       {mode === "examples" && (
         <section className="space-y-3">
           <p className="text-sm leading-6 text-neutral-700 dark:text-neutral-300">
-            Pick an example, then see what a version scanner says next to what FirstWatch finds, and why. These are recorded runs; no model is called.
+            Pick an example, then see what a version-string check says next to what FirstWatch finds, and why. These are recorded runs; no model is called.
           </p>
           <div className="flex flex-wrap gap-2">
             {examples.map((ex) => (
@@ -683,8 +694,8 @@ export default function Triage({
                 {usingSample
                   ? `This is sample output from the "${sample?.label}" example, so Check shows its recorded run. No model call.`
                   : liveEnabled
-                    ? "The version scanner result and parsing appear instantly. The AI check follows and takes 2–4 minutes."
-                    : "The version scanner result and parsing appear instantly. The AI check is switched off on this deployment."}
+                    ? "The version-string check and parsing appear instantly. The AI check follows and takes 2–4 minutes."
+                    : "The version-string check and parsing appear instantly. The AI check is switched off on this deployment."}
               </p>
             </Step>
           </ol>
@@ -711,15 +722,16 @@ export default function Triage({
           <section className="rounded-xl border border-neutral-300 p-4 dark:border-neutral-700">
             <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Instant · code only</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-neutral-600 dark:text-neutral-400">Version scanner</span>
+              <span className="text-sm text-neutral-600 dark:text-neutral-400">Version-string check</span>
               <Badge verdict={baseline.overall} />
               <span className="text-xs text-neutral-500">from &quot;{scannerFrom ?? "no version"}&quot;</span>
             </div>
+            <ComparisonNote />
             {parsed && <p className="mt-2 text-sm leading-6 text-neutral-700 dark:text-neutral-300">Parsed: {parsed}</p>}
             {failure && <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">{failure}</p>}
             {mode === "own" && !running && !liveRun && !notice && !failure && (
               <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">
-                No FirstWatch verdict yet: that needs the AI check, which is switched off on this deployment. The badge above is what a version scanner would say.
+                No FirstWatch verdict yet: that needs the AI check, which is switched off on this deployment. The badge above is what a version-string check says.
               </p>
             )}
           </section>

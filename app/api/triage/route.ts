@@ -177,7 +177,7 @@ export async function POST(req: Request) {
             const decision = await allowLiveRun(ip);
             live = decision.ok;
             if (!decision.ok) {
-              const message = own ? decision.message.replace(FALLBACK, "The scanner result and parsing above are complete; try the AI check again later.") : decision.message;
+              const message = own ? decision.message.replace(FALLBACK, "The version-string check and parsing above are complete; try the AI check again later.") : decision.message;
               send({ type: "live_unavailable", reason: decision.reason, message });
             }
           }
