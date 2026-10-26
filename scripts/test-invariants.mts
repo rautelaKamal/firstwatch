@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
   emptyLedger,
   enforceInvariants,
+  tagRange,
   validateReport,
   type FirstWatchReport,
   type Ledger,
@@ -578,6 +579,44 @@ test("a correct overall produces no correction", () => {
   osv(ledger, "Ubuntu:22.04:LTS", "libapache2-mod-php8.1", "8.1.2-1ubuntu2.21", "affected");
   const r = { ...report([finding("libapache2-mod-php8.1", "8.1.2-1ubuntu2.21", "AFFECTED")]), overall: "AFFECTED" as Verdict };
   assert.deepEqual(enforceInvariants(r, ledger).report.corrections, []);
+});
+
+/* ================================================================== *
+ * Range results carry the CVE whose sources state them
+ * ================================================================== */
+
+const nvdLedger = () => {
+  const ledger = emptyLedger(upstream("8.1.33"));
+  ledger.cves = [CVE_A, CVE_B];
+  ledger.fetched.push({ source: `NVD ${CVE_A}`, text: JSON.stringify({ id: CVE_A, affected: [{ range: ">= 7.3.0 and < 8.2.35" }] }), cve: CVE_A });
+  ledger.fetched.push({ source: `NVD ${CVE_B}`, text: JSON.stringify({ id: CVE_B, affected: [{ range: ">= 5.4.0 and < 8.2.35" }] }), cve: CVE_B });
+  ledger.fetched.push({ source: "ghsa-a", text: "Affected versions < 8.2.35", cve: CVE_A });
+  ledger.fetched.push({ source: "ghsa-b", text: "Affected versions < 8.2.35", cve: CVE_B });
+  return ledger;
+};
+
+test("tagRange: a range belongs to the CVEs whose own sources state it", () => {
+  const ledger = nvdLedger();
+  assert.deepEqual(tagRange(">= 7.3.0 and < 8.2.35", ledger), [CVE_A]);
+  assert.deepEqual(tagRange(">= 5.4.0 and < 8.2.35", ledger), [CVE_B]);
+  assert.deepEqual(tagRange("< 8.2.35", ledger), [CVE_A, CVE_B]);
+  assert.deepEqual(tagRange("< 8.2.99", ledger), []);
+});
+
+test("an explanation for one CVE never cites the other CVE's range (the php:8.1 run)", () => {
+  const ledger = nvdLedger();
+  // As in the saved run: only CVE_A's NVD range was checked.
+  ledger.ranges.push({ version: "8.1.33", range: ">= 7.3.0 and < 8.2.35", inRange: true, cves: [CVE_A] });
+  const findings = [CVE_A, CVE_B].map((c) => finding("php", "8.1.33", "AFFECTED", { cve: c, version_source: "php -v" }));
+  const { report: out } = enforceInvariants(report(findings), ledger);
+  const a = out.findings.find((f) => f.cve === CVE_A)!;
+  const b = out.findings.find((f) => f.cve === CVE_B)!;
+  assert.match(a.allow_reason ?? "", /inside ">= 7\.3\.0 and < 8\.2\.35", the range stated for CVE-2026-109618/);
+  assert.ok(!(b.allow_reason ?? "").includes("7.3.0"), "CVE_B's explanation must not borrow CVE_A's range");
+  assert.match(b.allow_reason ?? "", /No supporting tool result/);
+  ledger.ranges.push({ version: "8.1.33", range: ">= 5.4.0 and < 8.2.35", inRange: true, cves: [CVE_B] });
+  const again = enforceInvariants(report(findings), ledger).report.findings.find((f) => f.cve === CVE_B)!;
+  assert.match(again.allow_reason ?? "", /the range stated for CVE-2026-109619/);
 });
 
 /* --- report ------------------------------------------------------- */

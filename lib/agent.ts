@@ -332,7 +332,8 @@ export type Ledger = {
     status: "fixed" | "affected" | "unknown";
     fixedVersion: string | null;
   }[];
-  ranges: { version: string; range: string; inRange: boolean }[];
+  /** cves: the CVEs whose own fetched sources state this range. Empty when nothing fetched states it. */
+  ranges: { version: string; range: string; inRange: boolean; cves?: string[] }[];
   facts: Fact[];
   /** Every page and record fetched this run. A range that cannot be found in
    *  here was not read anywhere, so it cannot be used to clear a package. */
@@ -369,6 +370,19 @@ const BOUNDARY_VERSIONS = /\d+(?:\.\d+)+(?:[-~+][\w.~+]+)*/g;
  * borrow provenance from a real "8.4.27", so the token may not be glued to a
  * longer version on either side. Sentence punctuation after it is fine.
  */
+/** The CVEs under assessment whose own fetched sources contain every boundary of this range. */
+export function tagRange(range: string, ledger: Ledger): string[] {
+  const bounds = range.match(BOUNDARY_VERSIONS) ?? [];
+  if (!bounds.length) return [];
+  return (ledger.cves ?? []).filter((cve) =>
+    ledger.fetched.some(
+      (src) =>
+        (src.cve ? src.cve.toUpperCase() === cve.toUpperCase() : src.text.toUpperCase().includes(cve.toUpperCase())) &&
+        bounds.every((b) => appearsVerbatim(b, src.text)),
+    ),
+  );
+}
+
 export function appearsVerbatim(token: string, text: string): boolean {
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(?<![\\w.])${escaped}(?![\\w~+-]|\\.\\d)`).test(text);
@@ -477,7 +491,11 @@ export function enforceInvariants(
         : null;
 
     // ---- ranges: every result must agree, and the clearing one must address this branch ----
-    const ranges = ledger.ranges.filter((r) => r.version === version);
+    // Range results for this finding's CVE. Untagged ranges (stated by nothing
+    // fetched) stay in view: they can still raise an alarm, and I7 names them.
+    const ranges = ledger.ranges
+      .filter((r) => r.version === version && (!cve || !r.cves?.length || r.cves.map((c) => c.toUpperCase()).includes(cve)))
+      .sort((a, b) => Number(!!b.cves?.length) - Number(!!a.cves?.length));
     const anyIn = ranges.some((r) => r.inRange);
     const floor = branchFloor(version);
     const coversBranch = (range: string) => {
@@ -662,7 +680,10 @@ export function enforceInvariants(
       const support = affectedRows[0]
         ? `OSV row ${affectedRows[0].ecosystem} ${affectedRows[0].sourcePackage ?? affectedRows[0].package} ${affectedRows[0].version} affected`
         : ranges.find((r) => r.inRange)
-          ? `${version} inside "${ranges.find((r) => r.inRange)?.range}"`
+          ? (() => {
+              const r = ranges.find((x) => x.inRange)!;
+              return `${version} inside "${r.range}"${r.cves?.length ? `, the range stated for ${r.cves.join(" and ")}` : ", a range no fetched source states"}`;
+            })()
           : null;
       allow_reason = `An alarm needs no permission.${support ? ` Supported by ${support}.` : " No supporting tool result was recorded."}`;
     } else {
@@ -812,8 +833,13 @@ async function runTool(name: string, a: Record<string, unknown>, ledger: Ledger)
     case "version_in_range": {
       const r = version_in_range(str(a.version), str(a.range));
       if (!r.ok) return { result: r, full: JSON.stringify(r), line: r.error };
-      ledger.ranges.push({ version: r.version, range: r.range, inRange: r.inRange });
-      return { result: r, full: JSON.stringify({ inRange: r.inRange, summary: r.summary }), line: r.summary };
+      const cves = tagRange(r.range, ledger);
+      ledger.ranges.push({ version: r.version, range: r.range, inRange: r.inRange, cves });
+      return {
+        result: r,
+        full: JSON.stringify({ inRange: r.inRange, summary: r.summary, cves }),
+        line: `${r.summary}${cves.length ? ` (${cves.join(", ")})` : " (range not found in any fetched source)"}`,
+      };
     }
     case "check_eol": {
       const r = await check_eol(str(a.product), str(a.version));
