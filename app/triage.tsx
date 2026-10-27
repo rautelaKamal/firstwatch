@@ -149,14 +149,17 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-/** What the two comparison rows are, shown next to the first verdict box. */
+/** What the two comparison rows are: a toggle under them, closed, so the outcome comes first. */
 function ComparisonNote() {
   return (
-    <p className="mt-3 text-xs leading-5 text-neutral-600 dark:text-neutral-400">
-      <span className="font-medium">What is this comparison?</span> A version-string check compares one PHP version number to the advisory, the way
+    <details className="mt-2 text-xs leading-5 text-neutral-600 dark:text-neutral-400">
+      <summary className="cursor-pointer select-none font-medium underline underline-offset-2">What is this comparison?</summary>
+      <p className="mt-1">
+        A version-string check compares one PHP version number to the advisory, the way
       banner-based scans and quick <code>php -v</code> checks do. The package-aware check is our own code-only version of what package scanners do: each
       installed dpkg version against the distribution&apos;s fix record. It is not the output of any of those tools.
-    </p>
+      </p>
+    </details>
   );
 }
 
@@ -791,9 +794,9 @@ export default function Triage({
             <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Instant · code only</p>
             <div className="mt-2">
               <ComparisonRows version={baseline.overall} pkg={pa ? { verdict: pa.overall, note: pa.overall ? null : pa.note ?? pa.rows.find((r) => !r.verdict)?.note ?? null } : null} firstwatch={null} />
+              <ComparisonNote />
               <p className="mt-1 text-xs text-neutral-500">Version-string check read &quot;{scannerFrom ?? "no version"}&quot;.</p>
             </div>
-            <ComparisonNote />
             {parsed && <p className="mt-2 text-sm leading-6 text-neutral-700 dark:text-neutral-300">Parsed: {parsed}</p>}
             {failure && <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">{failure}</p>}
             {mode === "own" && !running && !liveRun && !notice && !failure && (
