@@ -30,6 +30,8 @@ Each link opens that case on the site as a recorded live run; no model is called
 | [Debian 13, FPM held back](https://firstwatch-xi.vercel.app/?example=g) (g) | Not affected | Affected | **Affected** | `php8.4-fpm` held at `8.4.16-1~deb13u1` while the CLI that `php -v` reports was patched to `8.4.27-1~deb13u1`. The version-string check clears the host; the FPM package is still vulnerable. |
 | [Ubuntu 22.04, patched](https://firstwatch-xi.vercel.app/?example=a) (a) | Affected | Not affected | **Not affected** | Upstream 8.1 has no fixed release, but Ubuntu backported the fix into `8.1.2-1ubuntu2.28`. The version-string check raises a false alarm. |
 | [Debian 12, no security pocket](https://firstwatch-xi.vercel.app/?example=e) (e) | Affected | Affected | **Affected** | All three agree, but FirstWatch names the packages, Debian's fixed version (`8.2.35-1~deb12u1`), and the exact `apt-get --only-upgrade` command, plus the missing `bookworm-security` line. |
+| [Second CVE: Ubuntu 24.04](https://firstwatch-xi.vercel.app/?example=j) (j) | Affected | Not affected | **Not affected** | Second CVE (CVE-2024-11236): same pipeline, no code changes. Ubuntu backported the 8.3.14 fix into `8.3.6-0ubuntu0.24.04.3`. |
+| [Dockerfile only](https://firstwatch-xi.vercel.app/?example=i) (i) | Affected | cannot express | **Unverified** | Only a floating `php:8.4-fpm` tag, no output from the server. FirstWatch abstains instead of guessing; the version-string check says Affected with nothing installed to back it. |
 
 To check a real server, open [Check your own server](https://firstwatch-xi.vercel.app/?check): run one read-only command, paste its output, and press Check. The two code-only checks and parsing appear within seconds; the AI check follows and takes 2 to 4 minutes. It covers PHP2Shell on Ubuntu 22.04/24.04 and Debian 12/13. Anything else gets a "not supported yet" message and no verdict.
 
@@ -145,14 +147,14 @@ Ten cases, each with ground truth verified against the live OSV API (`eval/groun
 | f. Official php:8.1 image | Affected | Affected | Affected | cannot express (no dpkg PHP) |
 | g. Debian 13, FPM held back | Affected | Affected | **Not affected (unsafe)** | Affected |
 | h. 8.4 with mitigations | Affected, exposure reduced | Affected, exposure reduced | Affected | cannot express (no dpkg PHP) |
-| i. Dockerfile only | Unverified | not yet run live | Affected (no evidence) | cannot express (no dpkg output) |
-| j. Second CVE (CVE-2024-11236): same pipeline, no code changes | Not affected | not yet run live | Affected (false alarm) | Not affected |
+| i. Dockerfile only | Unverified | Unverified | Affected (no evidence) | cannot express (no dpkg output) |
+| j. Second CVE (CVE-2024-11236): same pipeline, no code changes | Not affected | Not affected | Affected (false alarm) | Not affected |
 
-- **FirstWatch:** 6 of 6 cases run live are correct, with 0 unsafe verdicts and 0 downgrades.
+- **FirstWatch:** 8 of 8 cases run live are correct, with 0 unsafe verdicts and 0 downgrades. c and d are not yet run live.
 - **Package-aware check:** 7 of 7 exact where it can answer. It cannot express f, h and i, which have no dpkg-installed PHP.
 - **Version-string check:** 4 of 10 exact, 1 acceptable (h), 3 false alarms (a, c, j), 1 unsafe (g), and 1 verdict with no evidence behind it (i).
 
-**Second CVE (CVE-2024-11236): same pipeline, no code changes.** CVE-2024-11236 (GHSA-5hqh-c84r-qjcv, an integer overflow in the firebird and dblib quoters) is fixed upstream in 8.3.14. Ubuntu 24.04 backported the fix into `8.3.6-0ubuntu0.24.04.3` (USN-7153-1). The case runs through the same parser, OSV check, GHSA field parser and invariants with no code changes. Without a model call, a "Not affected" report on the fixed version passes every invariant, and the same report one package release older (`.2`) is forced to Affected by I1.
+**Second CVE (CVE-2024-11236): same pipeline, no code changes.** CVE-2024-11236 (GHSA-5hqh-c84r-qjcv, an integer overflow in the firebird and dblib quoters) is fixed upstream in 8.3.14. Ubuntu 24.04 backported the fix into `8.3.6-0ubuntu0.24.04.3` (USN-7153-1). The case runs through the same parser, OSV check, GHSA field parser and invariants with no code changes. Run live on 27 October 2026, it reached Not affected for both engine packages with 0 downgrades. Separately, without a model call, a "Not affected" report one package release older (`.2`) is forced to Affected by I1.
 
 ### Digest recall: 37 of 39
 
@@ -176,18 +178,20 @@ Model: `openai/gpt-oss-120b` on Groq's free tier (8,000 tokens per minute).
 | e | 12,333 | 3 | 188 s |
 | g | 12,612 | 3 | 189 s |
 | a (deployed site check) | 12,362 | 3 | 130 s locally, about 2 min 20 s on Vercel |
+| j (one CVE, two packages) | 6,677 | 3 | 65 s |
+| i (no packages, abstains) | 7,634 | 2 | 64 s |
 
-Building the three advisory digests cost 13,618 tokens once; they are cached and shipped with the deploy. Earlier runs of f and h took about 17,000 tokens each, because they included a repair request that has since been removed.
+Building the three PHP2Shell advisory digests cost 13,618 tokens once, and GHSA-5hqh for case j cost 806; they are cached and shipped with the deploy. Earlier runs of f and h took about 17,000 tokens each, because they included a repair request that has since been removed.
 
 ## Limits and honest caveats
 
-- **Built around one incident.** The site checks PHP2Shell only. Case j shows the pipeline accepts a second CVE without code changes, but it has not been run live, and the site's input path, banner wording and what-if toggles are still written for PHP2Shell.
+- **Built around one incident.** The site checks PHP2Shell only. Case j shows the pipeline handles a second CVE without code changes, but the site's own-server input path, banner wording and what-if toggles are still written for PHP2Shell.
 - **Extension-level CVEs can over-alarm.** CVE-2024-11236 lives in the firebird and dblib extensions. FirstWatch judges the main PHP packages, so a host without those extensions installed may get a false alarm. It cannot produce false safety this way.
 - **Four distro releases.** Ubuntu 22.04 and 24.04, Debian 12 and 13. Other distributions, and PHP not installed from distro packages, get "not supported yet" and no verdict on the own-server path.
 - **Free-tier pacing.** Requests are paced to stay under 8,000 tokens per minute, so a live run takes 2 to 4 minutes, most of it waiting.
 - **Replays vs live.** The site opens on recorded live runs, and replaying one makes no model call. Live runs are rate-limited on the deployed site.
 - **Rebuilt evidence for early recordings.** The six earlier recordings saved only the report. Their evidence ledgers were rebuilt afterwards by re-running the same code tools (OSV, range checks); newer runs save their own.
-- **Not every case is run live.** c, d, i and j have ground truth and both code-only baselines, but no live FirstWatch run under the current design.
+- **Not every case is run live.** c and d have ground truth and both code-only baselines, but no live FirstWatch run under the current design yet.
 - **The digest misses things.** Recall is 37 of 39, and a model reading prose can miss a mitigation.
 
 ## Running locally

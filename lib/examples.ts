@@ -35,6 +35,16 @@ export const EXAMPLES = [
     label: "Debian 12, no security pocket",
     blurb: "Debian 12 never enabled bookworm-security, so php8.2 is stuck at 8.2.32-1~deb12u1 while Debian's fix sits in 8.2.35-1~deb12u1.",
   },
+  {
+    id: "j-ubuntu2404-backport-cve-2024-11236",
+    label: "Second CVE: Ubuntu 24.04",
+    blurb: "Second CVE (CVE-2024-11236): same pipeline, no code changes. Upstream fixed it in 8.3.14; Ubuntu 24.04 backported the fix into 8.3.6-0ubuntu0.24.04.3.",
+  },
+  {
+    id: "i-dockerfile-only",
+    label: "Dockerfile only",
+    blurb: "Only a Dockerfile with a floating php:8.4-fpm tag, no output from the running server. FirstWatch abstains: without the installed version there is nothing to prove.",
+  },
 ] as const;
 
 // The php:8.1 image run stays recorded in fixtures/ and in the eval; it is no longer a button.

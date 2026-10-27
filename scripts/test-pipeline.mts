@@ -701,8 +701,10 @@ await test("splitRuntime lists packages dpkg shows as held, as in case g", () =>
  * ================================================================== */
 
 const recording = (id: string) => {
-  const report = JSON.parse(readFileSync(`fixtures/${id}.json`, "utf8")).report as FirstWatchReport;
-  const ledger = JSON.parse(readFileSync(`fixtures/${id}.ledger.json`, "utf8"));
+  const saved = JSON.parse(readFileSync(`fixtures/${id}.json`, "utf8"));
+  const report = saved.report as FirstWatchReport;
+  // Newer recordings carry their own ledger; older ones have it rebuilt beside them.
+  const ledger = saved.ledger ?? JSON.parse(readFileSync(`fixtures/${id}.ledger.json`, "utf8"));
   const dir = join("eval/cases", id);
   const files: Record<string, string> = Object.fromEntries(readdirSync(dir).filter((f) => f !== "case.json").map((f) => [f, readFileSync(join(dir, f), "utf8")]));
   return { report, ledger, files };

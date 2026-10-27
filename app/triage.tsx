@@ -270,7 +270,7 @@ function ResultBanner({ report, scanner, pa, ecosystem, held }: { report: FirstW
     ? report.overall === "NOT_AFFECTED"
       ? "Every engine package is fixed in the distribution's own packages, even though the upstream version number looks old."
       : report.findings.flatMap((f) => f.unverified ?? [])[0]?.missing
-        ? `Not enough evidence: needs ${report.findings.flatMap((f) => f.unverified ?? [])[0].missing}.`
+        ? `Not enough evidence: needs ${report.findings.flatMap((f) => f.unverified ?? [])[0].missing.replace(/^[A-Z](?=[a-z])/, (c) => c.toLowerCase())}.`
         : "Not enough evidence to decide."
     : fixedIn && distro
       ? `${affected.map((p) => p.name).join(" and ")} ${affected.length > 1 ? "are" : "is"} at ${first?.installed_version}; ${ecosystem?.split(":")[0] ?? "the distribution"} fixed both CVEs in ${fixedIn}.`
@@ -287,7 +287,9 @@ function ResultBanner({ report, scanner, pa, ecosystem, held }: { report: FirstW
       <ComparisonRows version={scanner} pkg={cellFor(pa, report.overall)} firstwatch={report.overall} />
       {(scanner || pa) && <ComparisonNote />}
       <p className="mt-4 text-lg font-semibold">
-        {affected.length} of {pkgs.length} engine package{pkgs.length === 1 ? "" : "s"} affected
+        {!affected.length && report.overall === "UNVERIFIED"
+          ? `No verdict: not enough evidence for ${pkgs.length} engine package${pkgs.length === 1 ? "" : "s"}`
+          : `${affected.length} of ${pkgs.length} engine package${pkgs.length === 1 ? "" : "s"} affected`}
       </p>
       <p className="mt-1 text-sm leading-6 text-neutral-800 dark:text-neutral-200">{reason}</p>
 
@@ -855,7 +857,7 @@ export default function Triage({
 
             <SafetyLedger key={`${exampleId}-${report.assessed_at}`} report={report} defaultOpen={!!exampleId?.startsWith("g-")} />
 
-            {recorded && exampleId && mode === "examples" && (
+            {recorded && exampleId && mode === "examples" && (report.cves ?? [report.cve]).includes("CVE-2026-109618") && (
               <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
                 <h3 className="text-sm font-medium">What if the configuration changed?</h3>
                 <p className="mt-1 text-xs text-neutral-500">Re-checked instantly by the same safety engine, against this run&apos;s recorded evidence. No model call.</p>

@@ -1,0 +1,150 @@
+{
+  "case": "i-dockerfile-only",
+  "model": "openai/gpt-oss-120b",
+  "ms": 63555,
+  "report": {
+    "schema_version": 2,
+    "cve": "CVE-2026-109618, CVE-2026-109619",
+    "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "assessed_at": "2026-10-27T01:50:30.258Z",
+    "overall": "UNVERIFIED",
+    "summary": "Insufficient data to assess upstream php:8.4-fpm image; exact version and installed package details missing. CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php",
+        "cve": "CVE-2026-109618",
+        "installed_version": "",
+        "version_source": "image-tag",
+        "sapi": "fpm",
+        "verdict": "UNVERIFIED",
+        "decided_by": {
+          "method": "none",
+          "detail": ""
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [
+          {
+            "missing": "Exact php version (e.g., 8.4.x)",
+            "why_it_matters": "Needed for version_in_range check against NVD ranges",
+            "how_to_get_it": "Run `php -v` inside the container"
+          }
+        ],
+        "allow_reason": "UNVERIFIED asserts nothing, so it needs no evidence."
+      },
+      {
+        "package": "php",
+        "cve": "CVE-2026-109619",
+        "installed_version": "",
+        "version_source": "image-tag",
+        "sapi": "fpm",
+        "verdict": "UNVERIFIED",
+        "decided_by": {
+          "method": "none",
+          "detail": ""
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "9.2",
+          "score": 9.2,
+          "note": "CRITICAL"
+        },
+        "citations": [],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [
+          {
+            "missing": "Exact php version (e.g., 8.4.x)",
+            "why_it_matters": "Needed for version_in_range check against NVD ranges",
+            "how_to_get_it": "Run `php -v` inside the container"
+          }
+        ],
+        "allow_reason": "UNVERIFIED asserts nothing, so it needs no evidence."
+      }
+    ],
+    "corrections": [],
+    "covered_packages": [],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 6783,
+    "completion": 851,
+    "total": 7634,
+    "requests": 2,
+    "maxRequest": 4043,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6576,
+        "prompt": 3357,
+        "completion": 234,
+        "total": 3591
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6706,
+        "prompt": 3426,
+        "completion": 617,
+        "total": 4043
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "total": 0,
+    "requests": 0,
+    "maxRequest": 0,
+    "perRequest": []
+  },
+  "ledger": {
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "distro": [],
+    "ranges": []
+  }
+}
