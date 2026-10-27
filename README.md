@@ -141,8 +141,8 @@ Ten cases, each with ground truth verified against the live OSV API (`eval/groun
 |---|---|---|---|---|
 | a. Ubuntu 22.04, patched | Not affected | Not affected | Affected (false alarm) | Not affected |
 | b. Ubuntu 22.04, stale package | Affected | Affected | Affected | Affected |
-| c. Ubuntu 24.04, patched | Not affected | not yet run live | Affected (false alarm) | Not affected |
-| d. Debian 12, security pocket | Not affected | not yet run live | Not affected | Not affected |
+| c. Ubuntu 24.04, patched | Not affected | Not affected | Affected (false alarm) | Not affected |
+| d. Debian 12, security pocket | Not affected | Not affected | Not affected | Not affected |
 | e. Debian 12, no security pocket | Affected | Affected | Affected | Affected |
 | f. Official php:8.1 image | Affected | Affected | Affected | cannot express (no dpkg PHP) |
 | g. Debian 13, FPM held back | Affected | Affected | **Not affected (unsafe)** | Affected |
@@ -150,7 +150,7 @@ Ten cases, each with ground truth verified against the live OSV API (`eval/groun
 | i. Dockerfile only | Unverified | Unverified | Affected (no evidence) | cannot express (no dpkg output) |
 | j. Second CVE (CVE-2024-11236): same pipeline, no code changes | Not affected | Not affected | Affected (false alarm) | Not affected |
 
-- **FirstWatch:** 8 of 8 cases run live are correct, with 0 unsafe verdicts and 0 downgrades. c and d are not yet run live.
+- **FirstWatch:** 10 of 10 correct, every case run live, with 0 unsafe verdicts and 0 downgrades. In case d the model left the overall verdict empty and code recomputed it from the per-package findings.
 - **Package-aware check:** 7 of 7 exact where it can answer. It cannot express f, h and i, which have no dpkg-installed PHP.
 - **Version-string check:** 4 of 10 exact, 1 acceptable (h), 3 false alarms (a, c, j), 1 unsafe (g), and 1 verdict with no evidence behind it (i).
 
@@ -180,6 +180,8 @@ Model: `openai/gpt-oss-120b` on Groq's free tier (8,000 tokens per minute).
 | a (deployed site check) | 12,362 | 3 | 130 s locally, about 2 min 20 s on Vercel |
 | j (one CVE, two packages) | 6,677 | 3 | 65 s |
 | i (no packages, abstains) | 7,634 | 2 | 64 s |
+| c | 12,245 | 3 | 127 s |
+| d | 12,017 | 3 | 134 s |
 
 Building the three PHP2Shell advisory digests cost 13,618 tokens once, and GHSA-5hqh for case j cost 806; they are cached and shipped with the deploy. Earlier runs of f and h took about 17,000 tokens each, because they included a repair request that has since been removed.
 
@@ -191,7 +193,6 @@ Building the three PHP2Shell advisory digests cost 13,618 tokens once, and GHSA-
 - **Free-tier pacing.** Requests are paced to stay under 8,000 tokens per minute, so a live run takes 2 to 4 minutes, most of it waiting.
 - **Replays vs live.** The site opens on recorded live runs, and replaying one makes no model call. Live runs are rate-limited on the deployed site.
 - **Rebuilt evidence for early recordings.** The six earlier recordings saved only the report. Their evidence ledgers were rebuilt afterwards by re-running the same code tools (OSV, range checks); newer runs save their own.
-- **Not every case is run live.** c and d have ground truth and both code-only baselines, but no live FirstWatch run under the current design yet.
 - **The digest misses things.** Recall is 37 of 39, and a model reading prose can miss a mitigation.
 
 ## Running locally

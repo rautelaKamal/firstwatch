@@ -1,0 +1,265 @@
+{
+  "case": "c-ubuntu2404-patched",
+  "model": "openai/gpt-oss-120b",
+  "ms": 127251,
+  "report": {
+    "schema_version": 2,
+    "cve": "CVE-2026-109618, CVE-2026-109619",
+    "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "assessed_at": "2026-10-27T07:37:19.772Z",
+    "overall": "NOT_AFFECTED",
+    "summary": "Both php8.3-cli and php8.3-fpm are fixed in Ubuntu 24.04 LTS backports. Also installed: php8.3-common, php8.3-pgsql (share the source package; covered by the SAPI verdicts). CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php8.3-cli",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.3.6-0ubuntu0.24.04.13",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "UBUNTU fixed it in 8.3.6-0ubuntu0.24.04.13, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:24.04:LTS php8.3 8.3.6-0ubuntu0.24.04.13 is fixed (fixed in 8.3.6-0ubuntu0.24.04.13) for CVE-2026-109618, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:6.",
+        "fixed_in": "8.3.6-0ubuntu0.24.04.13"
+      },
+      {
+        "package": "php8.3-cli",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.3.6-0ubuntu0.24.04.13",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "UBUNTU fixed it in 8.3.6-0ubuntu0.24.04.13, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:24.04:LTS php8.3 8.3.6-0ubuntu0.24.04.13 is fixed (fixed in 8.3.6-0ubuntu0.24.04.13) for CVE-2026-109619, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:6.",
+        "fixed_in": "8.3.6-0ubuntu0.24.04.13"
+      },
+      {
+        "package": "php8.3-fpm",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.3.6-0ubuntu0.24.04.13",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "UBUNTU fixed it in 8.3.6-0ubuntu0.24.04.13, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:24.04:LTS php8.3 8.3.6-0ubuntu0.24.04.13 is fixed (fixed in 8.3.6-0ubuntu0.24.04.13) for CVE-2026-109618, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:8.",
+        "fixed_in": "8.3.6-0ubuntu0.24.04.13"
+      },
+      {
+        "package": "php8.3-fpm",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.3.6-0ubuntu0.24.04.13",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "UBUNTU fixed it in 8.3.6-0ubuntu0.24.04.13, and this version is at or above that.",
+            "source": "https://ubuntu.com/security/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Ubuntu:24.04:LTS php8.3 8.3.6-0ubuntu0.24.04.13 is fixed (fixed in 8.3.6-0ubuntu0.24.04.13) for CVE-2026-109619, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:8.",
+        "fixed_in": "8.3.6-0ubuntu0.24.04.13"
+      }
+    ],
+    "corrections": [],
+    "covered_packages": [
+      "php8.3-common",
+      "php8.3-pgsql"
+    ],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 10888,
+    "completion": 1357,
+    "total": 12245,
+    "requests": 3,
+    "maxRequest": 5123,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6381,
+        "prompt": 3226,
+        "completion": 118,
+        "total": 3344
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6832,
+        "prompt": 3692,
+        "completion": 86,
+        "total": 3778
+      },
+      {
+        "label": "agent 3",
+        "estimated": 7000,
+        "prompt": 3970,
+        "completion": 1153,
+        "total": 5123
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "total": 0,
+    "requests": 0,
+    "maxRequest": 0,
+    "perRequest": []
+  },
+  "ledger": {
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "distro": [
+      {
+        "cve": "CVE-2026-109618",
+        "ecosystem": "Ubuntu:24.04:LTS",
+        "package": "php8.3-cli",
+        "sourcePackage": "php8.3",
+        "version": "8.3.6-0ubuntu0.24.04.13",
+        "status": "fixed",
+        "fixedVersion": "8.3.6-0ubuntu0.24.04.13"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ecosystem": "Ubuntu:24.04:LTS",
+        "package": "php8.3-cli",
+        "sourcePackage": "php8.3",
+        "version": "8.3.6-0ubuntu0.24.04.13",
+        "status": "fixed",
+        "fixedVersion": "8.3.6-0ubuntu0.24.04.13"
+      },
+      {
+        "cve": "CVE-2026-109618",
+        "ecosystem": "Ubuntu:24.04:LTS",
+        "package": "php8.3-fpm",
+        "sourcePackage": "php8.3",
+        "version": "8.3.6-0ubuntu0.24.04.13",
+        "status": "fixed",
+        "fixedVersion": "8.3.6-0ubuntu0.24.04.13"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ecosystem": "Ubuntu:24.04:LTS",
+        "package": "php8.3-fpm",
+        "sourcePackage": "php8.3",
+        "version": "8.3.6-0ubuntu0.24.04.13",
+        "status": "fixed",
+        "fixedVersion": "8.3.6-0ubuntu0.24.04.13"
+      }
+    ],
+    "ranges": []
+  }
+}

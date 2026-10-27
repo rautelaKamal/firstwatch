@@ -1,0 +1,266 @@
+{
+  "case": "d-debian12-security-pocket",
+  "model": "openai/gpt-oss-120b",
+  "ms": 133554,
+  "report": {
+    "schema_version": 2,
+    "cve": "",
+    "target": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "assessed_at": "2026-10-27T07:39:43.550Z",
+    "overall": "NOT_AFFECTED",
+    "summary": "Also installed: php8.2-common (share the source package; covered by the SAPI verdicts). CVE-2026-109618 (GHSA-w8hw-w9fx-j79w) and CVE-2026-109619 (GHSA-6wmf-4rv5-p3rp) list identical patched versions: 8.2.35, 8.3.36, 8.4.27, 8.5.12.",
+    "findings": [
+      {
+        "package": "php8.2-cli",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.2.35-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "DEBIAN fixed it in 8.2.35-1~deb12u1, and this version is at or above that.",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Debian:12 php8.2 8.2.35-1~deb12u1 is fixed (fixed in 8.2.35-1~deb12u1) for CVE-2026-109618, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:6.",
+        "fixed_in": "8.2.35-1~deb12u1"
+      },
+      {
+        "package": "php8.2-cli",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.2.35-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "cli",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "DEBIAN fixed it in 8.2.35-1~deb12u1, and this version is at or above that.",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Debian:12 php8.2 8.2.35-1~deb12u1 is fixed (fixed in 8.2.35-1~deb12u1) for CVE-2026-109619, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:6.",
+        "fixed_in": "8.2.35-1~deb12u1"
+      },
+      {
+        "package": "php8.2-fpm",
+        "cve": "CVE-2026-109618",
+        "installed_version": "8.2.35-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "DEBIAN fixed it in 8.2.35-1~deb12u1, and this version is at or above that.",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109618",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Debian:12 php8.2 8.2.35-1~deb12u1 is fixed (fixed in 8.2.35-1~deb12u1) for CVE-2026-109618, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:8.",
+        "fixed_in": "8.2.35-1~deb12u1"
+      },
+      {
+        "package": "php8.2-fpm",
+        "cve": "CVE-2026-109619",
+        "installed_version": "8.2.35-1~deb12u1",
+        "version_source": "dpkg",
+        "sapi": "fpm",
+        "verdict": "NOT_AFFECTED",
+        "decided_by": {
+          "method": "check_distro_fix",
+          "detail": "fixed"
+        },
+        "exploitation_confidence": "not-applicable",
+        "severity": {
+          "cvss": "",
+          "score": 0,
+          "note": ""
+        },
+        "citations": [
+          {
+            "claim": "fixed in distro",
+            "quote": "DEBIAN fixed it in 8.2.35-1~deb12u1, and this version is at or above that.",
+            "source": "https://security-tracker.debian.org/tracker/CVE-2026-109619",
+            "verified": null
+          }
+        ],
+        "mitigations": [],
+        "eol": null,
+        "remediation": [],
+        "unverified": [],
+        "allow_reason": "OSV row: Debian:12 php8.2 8.2.35-1~deb12u1 is fixed (fixed in 8.2.35-1~deb12u1) for CVE-2026-109619, in this stack's own ecosystem, with no affected row; installed version read from dpkg.txt:8.",
+        "fixed_in": "8.2.35-1~deb12u1"
+      }
+    ],
+    "corrections": [
+      "overall was \"\"; recomputed from the findings as NOT_AFFECTED."
+    ],
+    "covered_packages": [
+      "php8.2-common"
+    ],
+    "enforcement_log": [],
+    "warnings": [],
+    "citation_issues": [],
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "fixed_versions": [
+      {
+        "cve": "CVE-2026-109618",
+        "ghsa": "GHSA-w8hw-w9fx-j79w",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ghsa": "GHSA-6wmf-4rv5-p3rp",
+        "patched": [
+          "8.2.35",
+          "8.3.36",
+          "8.4.27",
+          "8.5.12"
+        ],
+        "quote": "Patched versions 8.2.35 8.3.36 8.4.27 8.5.12",
+        "source": "https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp"
+      }
+    ],
+    "fixed_versions_identical": true
+  },
+  "usage": {
+    "prompt": 10746,
+    "completion": 1271,
+    "total": 12017,
+    "requests": 3,
+    "maxRequest": 4978,
+    "perRequest": [
+      {
+        "label": "agent 1",
+        "estimated": 6371,
+        "prompt": 3206,
+        "completion": 112,
+        "total": 3318
+      },
+      {
+        "label": "agent 2",
+        "estimated": 6803,
+        "prompt": 3638,
+        "completion": 83,
+        "total": 3721
+      },
+      {
+        "label": "agent 3",
+        "estimated": 7000,
+        "prompt": 3902,
+        "completion": 1076,
+        "total": 4978
+      }
+    ]
+  },
+  "digestUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "total": 0,
+    "requests": 0,
+    "maxRequest": 0,
+    "perRequest": []
+  },
+  "ledger": {
+    "cves": [
+      "CVE-2026-109618",
+      "CVE-2026-109619"
+    ],
+    "distro": [
+      {
+        "cve": "CVE-2026-109618",
+        "ecosystem": "Debian:12",
+        "package": "php8.2-cli",
+        "sourcePackage": "php8.2",
+        "version": "8.2.35-1~deb12u1",
+        "status": "fixed",
+        "fixedVersion": "8.2.35-1~deb12u1"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ecosystem": "Debian:12",
+        "package": "php8.2-cli",
+        "sourcePackage": "php8.2",
+        "version": "8.2.35-1~deb12u1",
+        "status": "fixed",
+        "fixedVersion": "8.2.35-1~deb12u1"
+      },
+      {
+        "cve": "CVE-2026-109618",
+        "ecosystem": "Debian:12",
+        "package": "php8.2-fpm",
+        "sourcePackage": "php8.2",
+        "version": "8.2.35-1~deb12u1",
+        "status": "fixed",
+        "fixedVersion": "8.2.35-1~deb12u1"
+      },
+      {
+        "cve": "CVE-2026-109619",
+        "ecosystem": "Debian:12",
+        "package": "php8.2-fpm",
+        "sourcePackage": "php8.2",
+        "version": "8.2.35-1~deb12u1",
+        "status": "fixed",
+        "fixedVersion": "8.2.35-1~deb12u1"
+      }
+    ],
+    "ranges": []
+  }
+}
