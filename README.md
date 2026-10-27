@@ -2,8 +2,6 @@
 
 Every verdict is capped by what the evidence can prove. It can't be talked into reassuring you.
 
-> DRAFT. Sections marked `TODO(Kamal)` are for the author to write.
-
 Package scanners tell you what to upgrade. FirstWatch reads the advisory and tells you why you're exposed, what partially protects you, and proves every claim. It reads what is actually installed, checks every PHP package against the distribution's own fix records, and shows why each verdict stands.
 
 **Live demo:** https://firstwatch-xi.vercel.app
@@ -220,6 +218,6 @@ Data: [OSV.dev](https://osv.dev), [NVD](https://nvd.nist.gov), [endoflife.date](
 
 Model: `openai/gpt-oss-120b` via [Groq](https://groq.com). Built with Next.js, hosted on Vercel.
 
-TODO(Kamal): acknowledgements, and a deliberate decision about naming the tools you used to build this. Do not leave it blank by default.
+Built solo with [Claude Code](https://www.anthropic.com/claude-code) for implementation and [Alan](https://x.com/tryAlanAI) for critique, research verification, and adversarial review of the safety layer. Architecture, safety design, and evaluation decisions are mine.
 
 License: see [LICENSE](LICENSE).
