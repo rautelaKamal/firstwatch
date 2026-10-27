@@ -8,6 +8,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { baselineVerdict, scannerVersion } from "./baseline";
+import { cachedCveNow } from "./cache";
+import { packageAwareFrom, type PackageAware } from "./packageaware";
+import { splitRuntime } from "./runtime";
+import { parse_stack } from "./tools";
+import type { Verdict } from "./verdicts";
+
 export type CaseSpec = { cve: string; cves: string[]; target: string; sources: string[]; stack: string };
 
 /** The disclosure every example is about, and the default for anything uploaded. */
@@ -113,4 +120,43 @@ export function savedLedger(id: string | undefined): import("./agent").SavedLedg
   if (run?.ledger) return run.ledger;
   const path = join(process.cwd(), "fixtures", `${id}.ledger.json`);
   return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+}
+
+/** An example's recorded result, computed on the server so the first paint already shows it. Code only. */
+export type InitialRun = {
+  exampleId: string;
+  report: unknown;
+  recorded: { at: string | null; model: string; tokens: number | null };
+  scanner: { overall: Verdict; version: string | null };
+  packageAware: PackageAware;
+  ecosystem: string | null;
+  parsed: string | null;
+};
+
+export function initialRun(id: string): InitialRun | null {
+  const saved = savedRun(id);
+  const example = loadExamples().find((e) => e.id === id);
+  if (!saved || !example) return null;
+  // The same files the page sends when this example is clicked.
+  const parts = splitRuntime(example.runtime);
+  const files = Object.fromEntries(
+    Object.entries({ "os-release": parts["os-release"], "php-v.txt": parts["php-v.txt"], "dpkg.txt": parts["dpkg.txt"], ...example.config }).filter(([, t]) => t.trim()),
+  );
+  const parsed = parse_stack(files);
+  const spec = caseSpec(id);
+  const ranges = spec.cves.flatMap((c) => {
+    const rec = cachedCveNow(c);
+    return rec && "found" in rec && rec.found ? rec.affected.filter((a) => a.product === "php/php").map((a) => a.range) : [];
+  });
+  const version = parsed.ok ? (scannerVersion(parsed.facts)?.version ?? null) : null;
+  const report = saved.report as { assessed_at?: string };
+  return {
+    exampleId: id,
+    report: saved.report,
+    recorded: { at: report.assessed_at ?? null, model: saved.model ?? "openai/gpt-oss-120b", tokens: saved.usage?.total ?? null },
+    scanner: { overall: baselineVerdict(version, ranges).verdict, version },
+    packageAware: packageAwareFrom(parsed.ok ? parsed : null, spec.cves, savedLedger(id)?.distro ?? []),
+    ecosystem: parsed.ok ? (parsed.ecosystems[0] ?? null) : null,
+    parsed: parsed.ok ? parsed.summary : null,
+  };
 }

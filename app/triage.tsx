@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { FirstWatchReport, PackageFinding } from "@/lib/agent";
 import { RUNTIME_COMMAND, splitRuntime } from "@/lib/runtime";
+import type { InitialRun } from "@/lib/examples";
 import type { PackageAware, PackageAwareRow } from "@/lib/packageaware";
 import { checkScope, SCOPE_LINE } from "@/lib/scope";
 import { INVARIANTS, REASSURANCE, VERDICT_LABELS, type Verdict } from "@/lib/verdicts";
@@ -415,35 +416,38 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 }
 
 export default function Triage({
-  examples, defaultExampleId, sampleExampleId, liveEnabled, ipWindowMinutes,
-}: { examples: Example[]; defaultExampleId: string; sampleExampleId: string; liveEnabled: boolean; ipWindowMinutes: number }) {
-  // Open on the default example, already running: a first-time visitor should see the point before reading anything.
+  examples, defaultExampleId, sampleExampleId, liveEnabled, ipWindowMinutes, initialRun,
+}: { examples: Example[]; defaultExampleId: string; sampleExampleId: string; liveEnabled: boolean; ipWindowMinutes: number; initialRun: InitialRun | null }) {
+  // Open on the default example: a first-time visitor should see the point before reading anything.
   const initial = examples.find((e) => e.id === defaultExampleId) ?? null;
+  // Its recorded result is rendered on the server, so the first paint already has the verdict. Clicks still stream.
+  const seeded = initialRun && initialRun.exampleId === initial?.id ? initialRun : null;
+  const seededReport = (seeded?.report as FirstWatchReport | undefined) ?? null;
   const [runtime, setRuntime] = useState(initial?.runtime ?? "");
   const [config, setConfig] = useState<Record<string, string>>(initial?.config ?? {});
   const [exampleId, setExampleId] = useState<string | null>(initial?.id ?? null);
-  const [running, setRunning] = useState(!!initial);
+  const [running, setRunning] = useState(!!initial && !seeded);
   const [log, setLog] = useState<LogLine[]>([]);
-  const [report, setReport] = useState<FirstWatchReport | null>(null);
-  const [baseline, setBaseline] = useState<FirstWatchReport | null>(null);
-  const [ecosystem, setEcosystem] = useState<string | null>(null);
-  const [recorded, setRecorded] = useState<Recorded | null>(null);
+  const [report, setReport] = useState<FirstWatchReport | null>(seededReport);
+  const [baseline, setBaseline] = useState<{ overall: Verdict } | null>(seeded ? { overall: seeded.scanner.overall } : null);
+  const [ecosystem, setEcosystem] = useState<string | null>(seeded?.ecosystem ?? null);
+  const [recorded, setRecorded] = useState<Recorded | null>(seeded?.recorded ?? null);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [liveRun, setLiveRun] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(0);
   const [liveMeta, setLiveMeta] = useState<LiveMeta | null>(null);
-  const [recordedReport, setRecordedReport] = useState<FirstWatchReport | null>(null);
+  const [recordedReport, setRecordedReport] = useState<FirstWatchReport | null>(seededReport);
   const [whatIf, setWhatIf] = useState<WhatIfState>({ memory: false, rlimit: false });
   const [whatIfResult, setWhatIfResult] = useState<{ label: string; changes: string[] } | null>(null);
   const [whatIfBusy, setWhatIfBusy] = useState(false);
   const [mode, setMode] = useState<Mode>("examples");
   const [ownText, setOwnText] = useState("");
-  const [parsed, setParsed] = useState<string | null>(null);
-  const [scannerFrom, setScannerFrom] = useState<string | null>(null);
+  const [parsed, setParsed] = useState<string | null>(seeded?.parsed ?? null);
+  const [scannerFrom, setScannerFrom] = useState<string | null>(seeded?.scanner.version ?? null);
   const [unsupported, setUnsupported] = useState<string | null>(null);
-  const [pa, setPa] = useState<PackageAware | null>(null);
+  const [pa, setPa] = useState<PackageAware | null>(seeded?.packageAware ?? null);
   const abortRef = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
@@ -654,6 +658,7 @@ export default function Triage({
     if (new URLSearchParams(window.location.search).has("check")) {
       queueMicrotask(() => {
         setMode("own");
+        resetResults();
         setRunning(false);
       });
       return;
@@ -662,15 +667,18 @@ export default function Triage({
       queueMicrotask(() => pickExample(linked, { scroll: false }));
       return;
     }
-    void stream({ runtime: initial.runtime, config: initial.config, exampleId: initial.id, live: false });
+    // Already on screen from the server render; only stream if it was not.
+    if (!seeded) void stream({ runtime: initial.runtime, config: initial.config, exampleId: initial.id, live: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const rawUrl = useMemo(
-    () => (report ? URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })) : null),
-    [report],
-  );
-  useEffect(() => () => { if (rawUrl) URL.revokeObjectURL(rawUrl); }, [rawUrl]);
+  // Built on click, not during render: the first render now happens on the server, which has no blob URLs.
+  const openRaw = () => {
+    if (!report) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
 
   const scanner = baseline?.overall ?? null;
   const byPackage = new Map<string, PackageFinding[]>();
@@ -831,7 +839,7 @@ export default function Triage({
                 <span className="font-medium text-sky-800 dark:text-sky-300">{whatIfResult.label}</span>
               ) : recorded ? (
                 <span>
-                  Recorded live run · {recorded.at ? new Date(recorded.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "date unknown"} · {recorded.model}
+                  Recorded live run · {recorded.at ? new Date(recorded.at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "date unknown"} · {recorded.model}
                   {recorded.tokens ? ` · ${recorded.tokens.toLocaleString()} tokens` : ""}
                 </span>
               ) : liveMeta ? (
@@ -852,7 +860,7 @@ export default function Triage({
                   Run live (≈2 min)
                 </button>
               )}
-              {rawUrl && <a href={rawUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">View raw report JSON</a>}
+              <button type="button" onClick={openRaw} className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">View raw report JSON</button>
             </div>
 
             <SafetyLedger key={`${exampleId}-${report.assessed_at}`} report={report} defaultOpen={!!exampleId?.startsWith("g-")} />

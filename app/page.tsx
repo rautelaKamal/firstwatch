@@ -1,4 +1,4 @@
-import { DEFAULT_EXAMPLE, loadExamples, SAMPLE_EXAMPLE } from "@/lib/examples";
+import { DEFAULT_EXAMPLE, initialRun, loadExamples, SAMPLE_EXAMPLE } from "@/lib/examples";
 
 import Triage from "./triage";
 
@@ -26,6 +26,7 @@ export default function Page() {
         sampleExampleId={SAMPLE_EXAMPLE}
         liveEnabled={process.env.LIVE_ENABLED === "true"}
         ipWindowMinutes={Number(process.env.LIVE_IP_WINDOW_MINUTES ?? 10)}
+        initialRun={initialRun(DEFAULT_EXAMPLE)}
       />
     </main>
   );
