@@ -29,6 +29,7 @@ import { chunkText, digestAdvisory, flattenDigest, focusOn, parseGhsa, renderDig
 import { allowLiveRun, resetLimits } from "../lib/limits";
 import { splitRuntime } from "../lib/runtime";
 import { checkScope } from "../lib/scope";
+import { packageAwareFrom } from "../lib/packageaware";
 import { reevaluate } from "../lib/whatif";
 import { scoreDigest } from "../lib/recall";
 import { callModel, chat, estimateRequest, llmConfig, planWait, resetBudget, type ChatMessage } from "../lib/llm";
@@ -790,6 +791,27 @@ await test("checkScope accepts every supported example and refuses the rest with
   assert.equal(checkScope("PHP 8.3.6 (cli)").ok, false);
   // Debian without VERSION_ID still resolves from its codename.
   assert.equal(checkScope("ID=debian\nVERSION_CODENAME=trixie\nii  php8.4-fpm 8.4.27-1~deb13u1 amd64 x").ok, true);
+});
+
+await test("package-aware baseline: per package from dpkg and OSV rows, and silent where it has no dpkg version", () => {
+  const files = (id: string) => Object.fromEntries(readdirSync(join("eval/cases", id)).filter((f) => f !== "case.json").map((f) => [f, readFileSync(join("eval/cases", id, f), "utf8")]));
+  const cves = ["CVE-2026-109618", "CVE-2026-109619"];
+  const g = parse_stack(files("g-split-cli-patched-fpm-stale"));
+  assert.ok(g.ok);
+  const ledger = JSON.parse(readFileSync("fixtures/g-split-cli-patched-fpm-stale.ledger.json", "utf8"));
+  const pa = packageAwareFrom(g, cves, ledger.distro);
+  assert.equal(pa.overall, "AFFECTED");
+  assert.deepEqual([...new Set(pa.rows.filter((r) => r.verdict === "AFFECTED").map((r) => r.package))], ["php8.4-fpm"]);
+  assert.ok(pa.rows.filter((r) => r.package === "php8.4-cli").every((r) => r.verdict === "NOT_AFFECTED"));
+  // No OSV row for a version: no verdict, never "Not affected".
+  const none = packageAwareFrom(g, cves, []);
+  assert.equal(none.overall, null);
+  assert.ok(none.rows.every((r) => r.verdict === null));
+  for (const id of ["f-upstream-php81-fpm-image", "h-upstream-84-mitigated", "i-dockerfile-only"]) {
+    const p = parse_stack(files(id));
+    const r = packageAwareFrom(p.ok ? p : null, cves, []);
+    assert.ok(r.overall === null && r.rows.length === 0 && r.note, id);
+  }
 });
 
 /* --- report ------------------------------------------------------- */

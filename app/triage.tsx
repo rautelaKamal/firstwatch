@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { FirstWatchReport, PackageFinding } from "@/lib/agent";
 import { RUNTIME_COMMAND, splitRuntime } from "@/lib/runtime";
+import type { PackageAware, PackageAwareRow } from "@/lib/packageaware";
 import { checkScope, SCOPE_LINE } from "@/lib/scope";
 import { INVARIANTS, REASSURANCE, VERDICT_LABELS, type Verdict } from "@/lib/verdicts";
 
@@ -148,18 +149,108 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-/** What the comparison badge is, shown next to the first verdict box. */
+/** What the two comparison rows are, shown next to the first verdict box. */
 function ComparisonNote() {
   return (
-    <p className="mt-2 text-xs leading-5 text-neutral-600 dark:text-neutral-400">
+    <p className="mt-3 text-xs leading-5 text-neutral-600 dark:text-neutral-400">
       <span className="font-medium">What is this comparison?</span> A version-string check compares one PHP version number to the advisory, the way
-      banner-based scans and quick <code>php -v</code> checks do.
+      banner-based scans and quick <code>php -v</code> checks do. The package-aware check is our own code-only version of what package scanners do: each
+      installed dpkg version against the distribution&apos;s fix record. It is not the output of any of those tools.
     </p>
   );
 }
 
+type Cell = { verdict: Verdict | null; note: string | null };
+
+/** The package-aware answer for one FirstWatch verdict, or a dash where it has no way to say what FirstWatch says. */
+function packageAwareCell(fw: Verdict | null, rows: PackageAwareRow[], fallback: string | null): Cell {
+  if (!rows.length) return { verdict: null, note: fallback ?? "Nothing to compare." };
+  const vs = rows.map((r) => r.verdict);
+  const own: Verdict | null = vs.includes("AFFECTED") ? "AFFECTED" : vs.every((v) => v === "NOT_AFFECTED") ? "NOT_AFFECTED" : null;
+  const alone = own ? `; by package version alone it says ${VERDICT_LABELS[own]}` : "";
+  if (fw === "AFFECTED_MITIGATED") return { verdict: null, note: `It has no "exposure reduced" verdict${alone}.` };
+  if (fw === "UNVERIFIED") return { verdict: null, note: `It has no "unverified" verdict${alone}.` };
+  if (!own) return { verdict: null, note: rows.find((r) => !r.verdict)?.note ?? "Nothing to compare." };
+  return { verdict: own, note: null };
+}
+
+/** Three rows, weakest method first: version-string check, package-aware check, FirstWatch. */
+function ComparisonRows({ version, pkg, firstwatch, compact = false }: { version: Verdict | null; pkg: Cell | null; firstwatch: Verdict | null; compact?: boolean }) {
+  const label = compact ? "text-xs text-neutral-500" : "text-sm text-neutral-600 dark:text-neutral-400";
+  return (
+    <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2">
+      {version && (
+        <>
+          <dt className={label}>Version-string check</dt>
+          <dd className="justify-self-end"><Badge verdict={version} size="sm" /></dd>
+        </>
+      )}
+      {pkg && (
+        <>
+          <dt className={label}>
+            Package-aware check
+            <span className="block text-[11px] leading-4 text-neutral-500">dpkg + distro data, like Trivy or debsecan</span>
+          </dt>
+          <dd className="justify-self-end">{pkg.verdict ? <Badge verdict={pkg.verdict} size="sm" /> : <span className="px-2 text-neutral-500">—</span>}</dd>
+          {!pkg.verdict && pkg.note && <dd className="col-span-2 -mt-1 text-xs leading-5 text-neutral-500">{pkg.note}</dd>}
+        </>
+      )}
+      {firstwatch && (
+        <>
+          <dt className={`${label} font-medium text-neutral-900 dark:text-neutral-100`}>FirstWatch</dt>
+          <dd className="justify-self-end"><Badge verdict={firstwatch} size={compact ? "md" : "lg"} /></dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
+/** One package's package-aware rows, collapsed to a cell for the given FirstWatch verdict. */
+const cellFor = (pa: PackageAware | null, fw: Verdict | null, pkg?: string): Cell | null =>
+  pa ? packageAwareCell(fw, pkg ? pa.rows.filter((r) => r.package === pkg) : pa.rows, pa.note) : null;
+
+/** For each package and CVE: the evidence that let the verdict stand, or the rule that downgraded it. */
+function SafetyLedger({ report, defaultOpen }: { report: FirstWatchReport; defaultOpen: boolean }) {
+  const downgrades = report.findings.reduce((n, f) => n + (f.enforcement?.length ?? 0), 0);
+  return (
+    <details open={defaultOpen} className="rounded-xl border border-neutral-300 p-4 dark:border-neutral-700">
+      <summary className="cursor-pointer">
+        <span className="text-sm font-semibold">Safety ledger</span>
+        <span className="ml-2 text-xs text-neutral-500">{INVARIANT_COUNT} rules checked in code · {downgrades} downgrade{downgrades === 1 ? "" : "s"}</span>
+      </summary>
+      <p className="mt-2 text-xs leading-5 text-neutral-500">
+        For each package and CVE: the evidence that let the verdict stand, or the rule that downgraded it. The rules can only make a verdict less reassuring.
+      </p>
+      <ul className="mt-3 space-y-3">
+        {report.findings.map((f, i) => (
+          <li key={`${f.package}-${f.cve}-${i}`} className="border-t border-neutral-200 pt-3 first:border-0 first:pt-0 dark:border-neutral-800">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="break-all font-mono text-sm font-medium">{f.package}</span>
+              <span className="font-mono text-xs text-neutral-500">{f.cve ?? "CVE not named"}</span>
+              <Badge verdict={f.verdict} size="sm" />
+            </div>
+            {f.enforcement?.length ? (
+              f.enforcement.map((e, j) => (
+                <p key={j} className="mt-1 text-sm leading-6 text-amber-900 dark:text-amber-200">
+                  <span className="font-medium">Downgraded by {e.invariant}</span> from {VERDICT_LABELS[e.from as Verdict]} to {VERDICT_LABELS[e.to as Verdict]}. {e.why}
+                </p>
+              ))
+            ) : f.allow_reason ? (
+              <p className="mt-1 text-sm leading-6 text-neutral-700 dark:text-neutral-300">
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">Stands because:</span> {explain(f.allow_reason)}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-neutral-500">No evidence was recorded for this verdict.</p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 /** The headline: how many engine packages are affected, why, and the exact next step. */
-function ResultBanner({ report, scanner, ecosystem, held }: { report: FirstWatchReport; scanner: Verdict | null; ecosystem: string | null; held: string[] }) {
+function ResultBanner({ report, scanner, pa, ecosystem, held }: { report: FirstWatchReport; scanner: Verdict | null; pa: PackageAware | null; ecosystem: string | null; held: string[] }) {
   const byPkg = new Map<string, PackageFinding[]>();
   for (const f of report.findings) byPkg.set(f.package, [...(byPkg.get(f.package) ?? []), f]);
   const pkgs = [...byPkg].map(([name, fs]) => ({ name, fs, verdict: worst(fs.map((f) => f.verdict)) }));
@@ -190,19 +281,8 @@ function ResultBanner({ report, scanner, ecosystem, held }: { report: FirstWatch
 
   return (
     <div className={`rounded-xl border p-4 sm:p-5 ${PANEL[report.overall]}`}>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-neutral-600 dark:text-neutral-400">FirstWatch</span>
-          <Badge verdict={report.overall} size="lg" />
-        </div>
-        {scanner && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-neutral-600 dark:text-neutral-400">Version-string check</span>
-            <Badge verdict={scanner} />
-          </div>
-        )}
-      </div>
-      {scanner && <ComparisonNote />}
+      <ComparisonRows version={scanner} pkg={cellFor(pa, report.overall)} firstwatch={report.overall} />
+      {(scanner || pa) && <ComparisonNote />}
       <p className="mt-4 text-lg font-semibold">
         {affected.length} of {pkgs.length} engine package{pkgs.length === 1 ? "" : "s"} affected
       </p>
@@ -258,26 +338,23 @@ function ResultBanner({ report, scanner, ecosystem, held }: { report: FirstWatch
   );
 }
 
-function PackageCard({ name, findings, scanner, ecosystem }: { name: string; findings: PackageFinding[]; scanner: Verdict | null; ecosystem: string | null }) {
+function PackageCard({ name, findings, scanner, pa, ecosystem }: { name: string; findings: PackageFinding[]; scanner: Verdict | null; pa: PackageAware | null; ecosystem: string | null }) {
   const verdict = worst(findings.map((f) => f.verdict));
   const first = findings[0];
   const downgrades = findings.reduce((n, f) => n + (f.enforcement?.length ?? 0), 0);
   return (
     <article className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="break-all font-mono text-base font-semibold">{name}</h3>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            <span className="break-all font-mono">{first.installed_version}</span> from {first.version_source}
-          </p>
-        </div>
-        <div className="flex flex-col items-start gap-1.5 text-xs sm:items-end">
-          <div className="flex items-center gap-2"><span className="text-neutral-500">FirstWatch</span><Badge verdict={verdict} /></div>
-          {scanner && <div className="flex items-center gap-2"><span className="text-neutral-500">Version-string check</span><Badge verdict={scanner} size="sm" /></div>}
-        </div>
+      <div className="min-w-0">
+        <h3 className="break-all font-mono text-base font-semibold">{name}</h3>
+        <p className="mt-0.5 text-xs text-neutral-500">
+          <span className="break-all font-mono">{first.installed_version}</span> from {first.version_source}
+        </p>
+      </div>
+      <div className="mt-3">
+        <ComparisonRows version={scanner} pkg={cellFor(pa, verdict, name)} firstwatch={verdict} compact />
       </div>
       <p className="mt-2 text-xs text-neutral-500">
-        Safety checks: {INVARIANT_COUNT} invariants checked · {downgrades} downgrade{downgrades === 1 ? "" : "s"}
+        Safety ledger: {INVARIANT_COUNT} rules checked · {downgrades} downgrade{downgrades === 1 ? "" : "s"}
       </p>
 
       <div className="mt-3 space-y-4">
@@ -287,18 +364,6 @@ function PackageCard({ name, findings, scanner, ecosystem }: { name: string; fin
               <span className="font-mono text-xs text-neutral-600 dark:text-neutral-400">{f.cve ?? "CVE not named"}</span>
               <Badge verdict={f.verdict} size="sm" />
             </div>
-            {f.enforcement?.length
-              ? f.enforcement.map((e, j) => (
-                  <p key={j} className="text-sm leading-6 text-amber-900 dark:text-amber-200">
-                    <span className="font-medium">A safety check downgraded this</span> from {VERDICT_LABELS[e.from as Verdict]} to {VERDICT_LABELS[e.to as Verdict]}. {e.why}
-                  </p>
-                ))
-              : f.allow_reason && (
-                  <p className="text-sm leading-6 text-neutral-700 dark:text-neutral-300">
-                    <span className="font-medium text-neutral-900 dark:text-neutral-100">Why this stands:</span> {explain(f.allow_reason)}
-                  </p>
-                )}
-
             {f.citations?.length > 0 && (
               <div className="mt-2 space-y-1.5">
                 {f.citations.map((c, j) => (
@@ -373,6 +438,7 @@ export default function Triage({
   const [parsed, setParsed] = useState<string | null>(null);
   const [scannerFrom, setScannerFrom] = useState<string | null>(null);
   const [unsupported, setUnsupported] = useState<string | null>(null);
+  const [pa, setPa] = useState<PackageAware | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const started = useRef(false);
@@ -403,6 +469,7 @@ export default function Triage({
     setParsed(null);
     setScannerFrom(null);
     setUnsupported(null);
+    setPa(null);
   }
 
   function run(opts: RunOpts, { scroll = true }: { scroll?: boolean } = {}) {
@@ -463,6 +530,7 @@ export default function Triage({
             setParsed(String(event.summary ?? ""));
           }
           if (event.type === "unsupported") setUnsupported(String(event.message));
+          if (event.type === "package_aware") setPa({ overall: (event.overall as PackageAware["overall"]) ?? null, rows: (event.rows as PackageAwareRow[]) ?? [], note: (event.note as string | null) ?? null });
           if (event.type === "replay") setRecorded(event.recorded as Recorded);
           if (event.type === "live_unavailable") setNotice(String(event.message));
           if (event.type === "error") setFailure(String(event.message));
@@ -626,7 +694,7 @@ export default function Triage({
       {mode === "examples" && (
         <section className="space-y-3">
           <p className="text-sm leading-6 text-neutral-700 dark:text-neutral-300">
-            Pick an example, then see what a version-string check says next to what FirstWatch finds, and why. These are recorded runs; no model is called.
+            Pick an example, then compare a version-string check and a package-aware check with what FirstWatch finds, and why.
           </p>
           <div className="flex flex-wrap gap-2">
             {examples.map((ex) => (
@@ -694,8 +762,8 @@ export default function Triage({
                 {usingSample
                   ? `This is sample output from the "${sample?.label}" example, so Check shows its recorded run. No model call.`
                   : liveEnabled
-                    ? "The version-string check and parsing appear instantly. The AI check follows and takes 2–4 minutes."
-                    : "The version-string check and parsing appear instantly. The AI check is switched off on this deployment."}
+                    ? "The two code-only checks and parsing appear within seconds. The AI check follows and takes 2–4 minutes."
+                    : "The two code-only checks and parsing appear within seconds. The AI check is switched off on this deployment."}
               </p>
             </Step>
           </ol>
@@ -721,17 +789,16 @@ export default function Triage({
         {baseline && !report && (liveRun || !running) && (
           <section className="rounded-xl border border-neutral-300 p-4 dark:border-neutral-700">
             <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Instant · code only</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-neutral-600 dark:text-neutral-400">Version-string check</span>
-              <Badge verdict={baseline.overall} />
-              <span className="text-xs text-neutral-500">from &quot;{scannerFrom ?? "no version"}&quot;</span>
+            <div className="mt-2">
+              <ComparisonRows version={baseline.overall} pkg={pa ? { verdict: pa.overall, note: pa.overall ? null : pa.note ?? pa.rows.find((r) => !r.verdict)?.note ?? null } : null} firstwatch={null} />
+              <p className="mt-1 text-xs text-neutral-500">Version-string check read &quot;{scannerFrom ?? "no version"}&quot;.</p>
             </div>
             <ComparisonNote />
             {parsed && <p className="mt-2 text-sm leading-6 text-neutral-700 dark:text-neutral-300">Parsed: {parsed}</p>}
             {failure && <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">{failure}</p>}
             {mode === "own" && !running && !liveRun && !notice && !failure && (
               <p className="mt-3 text-sm leading-6 text-neutral-800 dark:text-neutral-200">
-                No FirstWatch verdict yet: that needs the AI check, which is switched off on this deployment. The badge above is what a version-string check says.
+                No FirstWatch verdict yet: that needs the AI check, which is switched off on this deployment. The rows above are the two code-only comparisons.
               </p>
             )}
           </section>
@@ -753,7 +820,7 @@ export default function Triage({
         )}
         {report && (
           <>
-            <ResultBanner report={report} scanner={scanner} ecosystem={ecosystem} held={split.held} />
+            <ResultBanner report={report} scanner={scanner} pa={pa} ecosystem={ecosystem} held={split.held} />
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-500">
               {whatIfResult ? (
                 <span className="font-medium text-sky-800 dark:text-sky-300">{whatIfResult.label}</span>
@@ -771,12 +838,19 @@ export default function Triage({
                 <span>Run</span>
               )}
               {recorded && liveEnabled && mode === "examples" && (
-                <button type="button" disabled={running} onClick={() => run({ runtime, config, exampleId, live: true })} className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">
-                  Run it live
+                <button
+                  type="button"
+                  disabled={running}
+                  onClick={() => run({ runtime, config, exampleId, live: true })}
+                  className="rounded-lg border border-neutral-400 px-3 py-1 text-xs font-medium text-neutral-800 hover:border-neutral-700 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-200"
+                >
+                  Run live (≈2 min)
                 </button>
               )}
               {rawUrl && <a href={rawUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">View raw report JSON</a>}
             </div>
+
+            <SafetyLedger key={`${exampleId}-${report.assessed_at}`} report={report} defaultOpen={!!exampleId?.startsWith("g-")} />
 
             {recorded && exampleId && mode === "examples" && (
               <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
@@ -800,7 +874,7 @@ export default function Triage({
               </section>
             )}
 
-            {[...byPackage].map(([name, fs]) => <PackageCard key={name} name={name} findings={fs} scanner={scanner} ecosystem={ecosystem} />)}
+            {[...byPackage].map(([name, fs]) => <PackageCard key={name} name={name} findings={fs} scanner={scanner} pa={pa} ecosystem={ecosystem} />)}
 
             {report.fixed_versions && report.fixed_versions.length > 0 && (
               <details className="rounded-xl border border-neutral-200 p-4 text-sm dark:border-neutral-800">

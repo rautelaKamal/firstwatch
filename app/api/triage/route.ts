@@ -25,9 +25,10 @@
 import { runAgent, type AgentEvent, type FirstWatchReport } from "@/lib/agent";
 import { runBaseline } from "@/lib/baseline";
 import { cachedCveNow } from "@/lib/cache";
-import { caseSpec, savedRun } from "@/lib/examples";
+import { caseSpec, savedLedger, savedRun } from "@/lib/examples";
 import { allowLiveRun, clientIp, FALLBACK } from "@/lib/limits";
 import { emptyUsage, type TokenUsage } from "@/lib/llm";
+import { packageAware, packageAwareFrom, type PackageAware } from "@/lib/packageaware";
 import { checkScope } from "@/lib/scope";
 import { parse_stack } from "@/lib/tools";
 
@@ -51,7 +52,8 @@ export type StreamEvent =
   | { type: "baseline"; report: FirstWatchReport; version: string | null }
   | { type: "replay"; note: string; recorded: { at: string | null; model: string; tokens: number | null } }
   | { type: "live_unavailable"; reason: string; message: string }
-  | { type: "unsupported"; message: string };
+  | { type: "unsupported"; message: string }
+  | ({ type: "package_aware" } & PackageAware);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -170,6 +172,10 @@ export async function POST(req: Request) {
               packages: parsed.packages.length, runtimeEvidence: parsed.hasRuntimeEvidence, unverified: parsed.unverified,
             });
           }
+          // The package-aware baseline, also code only: an example's saved OSV rows, or OSV asked now for own input.
+          const ledger = own ? null : savedLedger(exampleId);
+          const pa = !parsed.ok ? packageAwareFrom(null, spec.cves, []) : ledger ? packageAwareFrom(parsed, spec.cves, ledger.distro) : await packageAware(parsed, spec.cves);
+          send({ type: "package_aware", ...pa });
 
           // 2. Only now the checks that may wait.
           let live = false;
@@ -177,7 +183,7 @@ export async function POST(req: Request) {
             const decision = await allowLiveRun(ip);
             live = decision.ok;
             if (!decision.ok) {
-              const message = own ? decision.message.replace(FALLBACK, "The version-string check and parsing above are complete; try the AI check again later.") : decision.message;
+              const message = own ? decision.message.replace(FALLBACK, "The code-only checks and parsing above are complete; try the AI check again later.") : decision.message;
               send({ type: "live_unavailable", reason: decision.reason, message });
             }
           }

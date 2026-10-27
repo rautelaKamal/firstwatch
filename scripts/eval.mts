@@ -12,11 +12,12 @@
  * re-check with `npm run verify-truth` before trusting a run.
  */
 
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { VERDICT_LABELS, runAgent, type FirstWatchReport, type TokenUsage, type Verdict } from "../lib/agent";
 import { runBaseline } from "../lib/baseline";
+import { packageAware, packageAwareFrom, type PackageAware } from "../lib/packageaware";
 import { cachedDigests, formatRecall, reportViolations, scoreDigest, type AnswerKey } from "../lib/recall";
 import { emptyUsage, mergeUsage } from "../lib/llm";
 import { parse_stack } from "../lib/tools";
@@ -111,6 +112,16 @@ function loadCases(): Loaded[] {
     });
 }
 
+/** The package-aware baseline: the case's saved OSV rows when it has a recording, otherwise OSV asked now. Code only. */
+async function packageAwareFor(k: Loaded): Promise<PackageAware> {
+  const parsed = parse_stack(k.files);
+  if (!parsed.ok) return packageAwareFrom(null, k.cves ?? [k.cve], []);
+  const ledgerPath = join("fixtures", `${k.id}.ledger.json`);
+  if (existsSync(ledgerPath)) return packageAwareFrom(parsed, k.cves ?? [k.cve], JSON.parse(readFileSync(ledgerPath, "utf8")).distro);
+  return packageAware(parsed, k.cves ?? [k.cve]);
+}
+const paLabel = (pa: PackageAware) => (pa.overall ? VERDICT_LABELS[pa.overall] : "none (cannot express)");
+
 function grade(want: Verdict, acceptable: Verdict[], got: Verdict | "none") {
   if (got === "none") return { status: "err" as const, unsafe: false };
   if (got === want) return { status: "pass" as const, unsafe: false };
@@ -137,6 +148,8 @@ async function dryRun(cases: Loaded[]): Promise<number> {
     console.log(`  ${dim("stack    ")} ${parsed.summary}`);
     console.log(`  ${dim("version-string")} ${base.report.overall} from "${base.version ?? "nothing"}" ${baseOk ? green("(as recorded)") : red(`(case.json says ${k.baseline_expected})`)}`);
     if (!baseOk) problems++;
+    const pa = await packageAwareFor(k);
+    console.log(`  ${dim("package-aware ")} ${paLabel(pa)} ${dim(pa.note ?? pa.rows.map((r) => `${r.package} ${r.cve}: ${r.verdict ?? "none"}`).join("; "))}`);
   }
   console.log(`\n${problems ? red(`${problems} problems`) : green("fixtures and baseline consistent")} ${dim("(no model calls made)")}`);
   return problems + printRecall();
@@ -187,7 +200,7 @@ async function runFirstWatch(k: Loaded): Promise<Result> {
 
 async function liveRun(cases: Loaded[]) {
   mkdirSync(OUT_DIR, { recursive: true });
-  const rows: { k: Loaded; fw: Result; base: Verdict; fwG: Grade; baseG: Grade; mentioned: boolean }[] = [];
+  const rows: { k: Loaded; fw: Result; base: Verdict; fwG: Grade; baseG: Grade; pa: PackageAware; mentioned: boolean }[] = [];
 
   for (const k of cases) {
     console.log(`\n${bold(k.id)} ${dim(`expects ${label(k.expect.verdict)}`)}`);
@@ -197,6 +210,7 @@ async function liveRun(cases: Loaded[]) {
     const acceptable = k.expect.also_acceptable ?? [];
     const fwG = grade(k.expect.verdict, acceptable, fw.verdict);
     const baseG = grade(k.expect.verdict, acceptable, base);
+    const pa = await packageAwareFor(k);
     const mention = (k.expect.must_mention ?? "").toLowerCase();
     // Remediation is checked by its type field, on every affected finding, not by searching the text.
     const affectedFindings = (fw.report?.findings ?? []).filter((f) => f.verdict === "AFFECTED" || f.verdict === "AFFECTED_MITIGATED");
@@ -204,11 +218,12 @@ async function liveRun(cases: Loaded[]) {
       (t) => !affectedFindings.length || affectedFindings.some((f) => !(f.remediation ?? []).some((r) => r.type === t)),
     );
     const mentioned = (!mention || JSON.stringify(fw.report ?? {}).toLowerCase().includes(mention)) && !missingTypes.length;
-    rows.push({ k, fw, base, fwG, baseG, mentioned });
+    rows.push({ k, fw, base, fwG, baseG, pa, mentioned });
 
     const both = mergeUsage(fw.usage, fw.digest);
     console.log(`  ${mark(fwG)} firstwatch:     ${label(fw.verdict)}${fwG.unsafe ? red("  UNSAFE") : ""} ${dim(`${fw.toolCalls} tool calls, ${ms(fw.ms)}, ${fw.downgrades} downgrades`)}`);
     console.log(`  ${mark(baseG)} version-string: ${label(base)}${baseG.unsafe ? red("  UNSAFE") : ""} ${dim("deterministic code, 0 tokens")}`);
+    console.log(`       package-aware:  ${paLabel(pa)} ${dim("dpkg + distro data, code only, 0 tokens")}`);
     console.log(`  ${dim("tokens")} agent ${n(fw.usage.total)} in ${fw.usage.requests} requests; digests ${n(fw.digest.total)} in ${fw.digest.requests}; largest request ${n(both.maxRequest)}`);
     for (const r of both.perRequest) console.log(`    ${dim(r.label.padEnd(12))} ${n(r.total).padStart(6)} tokens  ${dim(`(${n(r.prompt)} in, ${n(r.completion)} out, estimated ${n(r.estimated)})`)}`);
     if (fw.report?.summary) console.log(`  ${dim(fw.report.summary.slice(0, 300))}`);
@@ -227,17 +242,19 @@ async function liveRun(cases: Loaded[]) {
   }
 
   console.log(`\n${bold("scorecard")}  ${dim("FirstWatch vs a version-string check, same cases")}`);
-  console.log(dim(`  ${"case".padEnd(32)}${"expected".padEnd(28)}${"firstwatch".padEnd(28)}version-string`));
+  console.log(dim(`  ${"case".padEnd(32)}${"expected".padEnd(28)}${"firstwatch".padEnd(28)}${"version-string".padEnd(28)}package-aware`));
   const cell = (g: Grade, v: Verdict | "none") => {
     const t = `${label(v)}${g.unsafe ? " !" : ""}`.padEnd(28);
     return g.status === "pass" ? green(t) : g.status === "soft" ? yellow(t) : red(t);
   };
-  for (const r of rows) console.log(`  ${r.k.id.padEnd(32)}${label(r.k.expect.verdict).padEnd(28)}${cell(r.fwG, r.fw.verdict)}${cell(r.baseG, r.base)}`);
+  for (const r of rows) console.log(`  ${r.k.id.padEnd(32)}${label(r.k.expect.verdict).padEnd(28)}${cell(r.fwG, r.fw.verdict)}${cell(r.baseG, r.base)}${r.pa.overall ? cell(grade(r.k.expect.verdict, r.k.expect.also_acceptable ?? [], r.pa.overall), r.pa.overall) : dim("cannot express")}`);
 
   const tally = (gs: Grade[]) => ({ pass: gs.filter((g) => g.status === "pass").length, soft: gs.filter((g) => g.status === "soft").length, unsafe: gs.filter((g) => g.unsafe).length });
   const fwT = tally(rows.map((r) => r.fwG));
   const bT = tally(rows.map((r) => r.baseG));
   console.log(`\n  firstwatch      ${fwT.pass}/${rows.length} exact, ${fwT.soft} acceptable, ${fwT.unsafe ? red(`${fwT.unsafe} unsafe`) : green("0 unsafe")}`);
+  const paT = rows.filter((r) => r.pa.overall);
+  console.log(`  package-aware   ${paT.filter((r) => r.pa.overall === r.k.expect.verdict).length}/${paT.length} exact where it can answer, ${rows.length - paT.length} it cannot express`);
   console.log(`  version-string  ${bT.pass}/${rows.length} exact, ${bT.soft} acceptable, ${bT.unsafe ? red(`${bT.unsafe} unsafe`) : green("0 unsafe")}`);
 
   const agent = rows.reduce((a, r) => mergeUsage(a, r.fw.usage), emptyUsage());

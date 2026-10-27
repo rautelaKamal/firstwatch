@@ -9,10 +9,12 @@ export default function Page() {
     <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-12">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">FirstWatch</h1>
+        <p className="mt-2 text-base leading-7 text-neutral-800 dark:text-neutral-200">
+          Package scanners tell you what to upgrade. FirstWatch reads the advisory and tells you why you&apos;re exposed, what partially protects you,
+          and proves every claim.
+        </p>
         <p className="mt-2 text-sm leading-6 text-neutral-600 dark:text-neutral-400">
-          A version-string check compares one PHP version number to the advisory. FirstWatch reads what is actually installed, checks each PHP package against
-          the distribution&apos;s own fix records for PHP2Shell (CVE-2026-109618 and CVE-2026-109619), and shows why every
-          verdict stands.
+          Every verdict is capped by what the evidence can prove. It can&apos;t be talked into reassuring you.
         </p>
         <p className="mt-3 text-sm font-medium text-neutral-800 dark:text-neutral-200">
           FirstWatch tells you whether you&apos;re exposed, not whether you&apos;ve already been attacked.
